@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "ignoreDeprecations": "6.0",
+    "types": ["node", "vite/client", "element-plus/global", "art-supabase-pro"],
+    "jsx": "preserve",
+    "jsxImportSource": "vue",
+    "lib": ["esnext", "dom"],
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mes/*": ["src/*"],
+      "@/*": ["../../src/*", "../art-supabase-pro/src/*", "node_modules/art-supabase-pro/src/*"],
+      "@views/*": [
+        "../../src/views/*",
+        "../art-supabase-pro/src/views/*",
+        "node_modules/art-supabase-pro/src/views/*"
+      ],
+      "@styles/*": [
+        "../../src/assets/styles/*",
+        "../art-supabase-pro/src/assets/styles/*",
+        "node_modules/art-supabase-pro/src/assets/styles/*"
+      ],
+      "@utils/*": [
+        "../../src/utils/*",
+        "../art-supabase-pro/src/utils/*",
+        "node_modules/art-supabase-pro/src/utils/*"
+      ],
+      "@stores/*": [
+        "../../src/store/*",
+        "../art-supabase-pro/src/store/*",
+        "node_modules/art-supabase-pro/src/store/*"
+      ]
+    }
+  },
+  "include": ["vite.config.ts", "src/**/*", "tests/unit/**/*.ts"],
+  "exclude": ["node_modules"]
+}

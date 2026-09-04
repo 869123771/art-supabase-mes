@@ -1,0 +1,12 @@
+allowBuilds:
+  '@parcel/watcher': true
+  core-js: true
+  es5-ext: true
+  esbuild: true
+  vue-demi: true
+overrides:
+  '@vue/compiler-sfc': 3.5.40
+  element-plus: 2.14.3
+  pinia: 3.0.3
+  vue: 3.5.40
+  vue-router: 5.2.0

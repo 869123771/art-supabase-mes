@@ -1,0 +1,60 @@
+{
+  "name": "@art-supabase/mes-module",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=11.9.0"
+  },
+  "description": "Art Supabase Pro 的 MES 制造执行应用",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit --pretty false && vite build",
+    "preview": "vite preview",
+    "boundary:audit": "tsx scripts/audit-module-boundary.ts",
+    "ui:audit": "tsx node_modules/art-supabase-pro/scripts/ui-audit.ts",
+    "lint": "eslint \"src/**/*.{ts,vue}\" \"scripts/**/*.ts\" vite.config.ts",
+    "typecheck": "vue-tsc --noEmit --pretty false",
+    "check": "pnpm boundary:audit && pnpm ui:audit && pnpm typecheck && pnpm lint"
+  },
+  "dependencies": {
+    "art-supabase-pro": "https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/abbdc518dcfe9e9ddae84736c3b894c1fd944263.tar.gz"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.38"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/node": "^26.0.1",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vitejs/plugin-vue-jsx": "^5.1.6",
+    "@vue/compiler-sfc": "3.5.40",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^17.7.0",
+    "prettier": "^3.8.4",
+    "sass": "^1.101.0",
+    "tsx": "^4.22.4",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.62.0",
+    "unplugin-auto-import": "^21.0.0",
+    "unplugin-element-plus": "^0.11.2",
+    "unplugin-vue-components": "^32.1.0",
+    "vite": "^8.1.0",
+    "vue-tsc": "~3.3.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/wangyanghub/art-supabase-mes.git"
+  },
+  "license": "MulanPSL-2.0"
+}
