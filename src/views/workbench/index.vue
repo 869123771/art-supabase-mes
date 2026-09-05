@@ -4,7 +4,7 @@
       eyebrow="MANUFACTURING EXECUTION"
       title="制造执行工作台"
       description="连接计划、工艺、现场执行与质量追溯；当前完成平台级接入，生产业务将沿标准闭环逐步落地。"
-      icon="ri:factory-line"
+      icon="ri:tools-line"
       :tags="[
         { label: '现场执行', type: 'primary' },
         { label: '全过程追溯', type: 'success' },
