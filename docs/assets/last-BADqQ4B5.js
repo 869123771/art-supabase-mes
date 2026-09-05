@@ -1,0 +1,1 @@
+import{t as e}from"./_baseClone-oA9c2_Fa.js";var t=1,n=4;function r(r){return e(r,t|n)}function i(e){var t=e==null?0:e.length;return t?e[t-1]:void 0}export{r as n,i as t};

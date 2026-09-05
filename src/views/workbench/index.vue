@@ -1,95 +1,102 @@
 <template>
-  <div class="mes-workbench business-workspace-page art-full-height">
-    <BusinessWorkspaceHeader
-      eyebrow="MANUFACTURING EXECUTION"
-      title="制造执行工作台"
-      description="连接计划、工艺、现场执行与质量追溯；当前完成平台级接入，生产业务将沿标准闭环逐步落地。"
-      icon="ri:tools-line"
-      :tags="[
-        { label: '现场执行', type: 'primary' },
-        { label: '全过程追溯', type: 'success' },
-        { label: '架构准备阶段', type: 'info' }
-      ]"
-      :metrics="metrics"
-    />
+  <div class="mes-workbench art-full-height">
+    <ElScrollbar class="mes-workbench__scrollbar">
+      <div class="business-workspace-page">
+        <BusinessWorkspaceHeader
+          eyebrow="MANUFACTURING EXECUTION"
+          title="制造执行工作台"
+          density="compact"
+          description="串联计划、工艺、现场执行与质量追溯，按实施路线逐步启用生产业务。"
+          icon="ri:tools-line"
+          :tags="[
+            { label: '现场执行', type: 'primary' },
+            { label: '全过程追溯', type: 'success' },
+            { label: '建设准备中', type: 'info' }
+          ]"
+          :metrics="metrics"
+        />
 
-    <div class="mes-workbench__content">
-      <ArtSectionCard
-        class="mes-workbench__flow-card"
-        title="生产执行闭环"
-        subtitle="以生产订单为主线，把排程、派工、报工、质检和完工沉淀为可追溯事件。"
-        preserve-content-structure
-      >
-        <template #actions><ElTag type="success" effect="plain" round>流程已规划</ElTag></template>
-        <div class="production-line" aria-label="生产执行流程">
-          <div class="production-line__rail"></div>
-          <article v-for="(stage, index) in productionStages" :key="stage.title">
-            <span class="production-line__node"><ArtSvgIcon :icon="stage.icon" /></span>
-            <small>STEP {{ String(index + 1).padStart(2, '0') }}</small>
-            <strong>{{ stage.title }}</strong>
-            <p>{{ stage.description }}</p>
-          </article>
-        </div>
-        <div class="traceability-band">
-          <span><ArtSvgIcon icon="ri:git-branch-line" /></span>
-          <div
-            ><small>TRACEABILITY KEY</small
-            ><strong>批次 / 序列号贯穿物料、设备、人员与质量记录</strong></div
+        <div class="mes-workbench__content">
+          <ArtSectionCard
+            class="mes-workbench__flow-card"
+            title="生产执行闭环"
+            subtitle="以生产订单为主线，把排程、派工、报工、质检和完工沉淀为可追溯事件。"
+            preserve-content-structure
           >
-          <ElTag type="info" effect="plain">数据接入后启用</ElTag>
-        </div>
-      </ArtSectionCard>
-
-      <ArtSectionCard
-        class="mes-workbench__readiness-card"
-        title="上线准备"
-        subtitle="当前接入状态与首个落地里程碑。"
-        preserve-content-structure
-      >
-        <ul class="readiness-list">
-          <li v-for="item in readinessItems" :key="item.label">
-            <span><ArtSvgIcon icon="ri:check-line" /></span>
-            <div
-              ><strong>{{ item.label }}</strong
-              ><small>{{ item.description }}</small></div
+            <template #actions
+              ><ElTag type="success" effect="plain" round>流程已规划</ElTag></template
             >
-            <ElTag size="small" type="success" effect="light" round>已完成</ElTag>
-          </li>
-        </ul>
-        <div class="next-step">
-          <span><ArtSvgIcon icon="ri:flag-line" /></span>
-          <div
-            ><small>NEXT MILESTONE</small><strong>建立工艺路线与工序版本</strong
-            ><p>先稳定工艺语义，再接生产订单、派工与现场报工。</p></div
+            <div class="production-line" aria-label="生产执行流程">
+              <div class="production-line__rail"></div>
+              <article v-for="(stage, index) in productionStages" :key="stage.title">
+                <span class="production-line__node"><ArtSvgIcon :icon="stage.icon" /></span>
+                <small>STEP {{ String(index + 1).padStart(2, '0') }}</small>
+                <strong>{{ stage.title }}</strong>
+                <p>{{ stage.description }}</p>
+              </article>
+            </div>
+            <div class="traceability-band">
+              <span class="traceability-band__icon"><ArtSvgIcon icon="ri:git-branch-line" /></span>
+              <div
+                ><small>追溯主线</small
+                ><strong>批次 / 序列号贯穿物料、设备、人员与质量记录</strong></div
+              >
+              <ElTag type="info" effect="plain">数据接入后启用</ElTag>
+            </div>
+          </ArtSectionCard>
+
+          <ArtSectionCard
+            class="mes-workbench__readiness-card"
+            title="上线准备"
+            subtitle="当前接入状态与首个落地里程碑。"
+            preserve-content-structure
           >
-        </div>
-      </ArtSectionCard>
+            <ul class="readiness-list">
+              <li v-for="item in readinessItems" :key="item.label">
+                <span class="readiness-list__icon"><ArtSvgIcon icon="ri:check-line" /></span>
+                <div
+                  ><strong>{{ item.label }}</strong
+                  ><small>{{ item.description }}</small></div
+                >
+                <ElTag size="small" type="success" effect="light" round>已完成</ElTag>
+              </li>
+            </ul>
+            <div class="next-step">
+              <span><ArtSvgIcon icon="ri:flag-line" /></span>
+              <div
+                ><small>下一步建设重点</small><strong>建立工艺路线与工序版本</strong
+                ><p>先稳定工艺语义，再接生产订单、派工与现场报工。</p></div
+              >
+            </div>
+          </ArtSectionCard>
 
-      <ArtSectionCard
-        class="mes-workbench__roadmap-card"
-        title="能力实施路线"
-        subtitle="从生产标准到现场闭环，再到质量和绩效分析。"
-        preserve-content-structure
-      >
-        <div class="roadmap-grid">
-          <article v-for="(phase, index) in roadmap" :key="phase.title">
-            <header
-              ><span>{{ index + 1 }}</span
-              ><div
-                ><small>{{ phase.code }}</small
-                ><strong>{{ phase.title }}</strong></div
-              ></header
-            >
-            <p>{{ phase.description }}</p>
-            <div
-              ><ElTag v-for="item in phase.items" :key="item" size="small" effect="plain">{{
-                item
-              }}</ElTag></div
-            >
-          </article>
+          <ArtSectionCard
+            class="mes-workbench__roadmap-card"
+            title="能力实施路线"
+            subtitle="从生产标准到现场闭环，再到质量和绩效分析。"
+            preserve-content-structure
+          >
+            <div class="roadmap-grid">
+              <article v-for="(phase, index) in roadmap" :key="phase.title">
+                <header
+                  ><span>{{ index + 1 }}</span
+                  ><div
+                    ><small>{{ phase.code }}</small
+                    ><strong>{{ phase.title }}</strong></div
+                  ></header
+                >
+                <p>{{ phase.description }}</p>
+                <div
+                  ><ElTag v-for="item in phase.items" :key="item" size="small" effect="plain">{{
+                    item
+                  }}</ElTag></div
+                >
+              </article>
+            </div>
+          </ArtSectionCard>
         </div>
-      </ArtSectionCard>
-    </div>
+      </div>
+    </ElScrollbar>
   </div>
 </template>
 
@@ -106,14 +113,14 @@
     {
       label: '应用运行时',
       value: '已接入',
-      description: '独立子仓与平台壳层',
+      description: '制造应用入口已就绪',
       icon: 'ri:links-line',
       tone: 'success'
     },
     {
       label: '菜单与权限',
       value: '已注册',
-      description: '管理员角色可访问',
+      description: '按角色授权访问',
       icon: 'ri:shield-keyhole-line',
       tone: 'success'
     },
@@ -127,7 +134,7 @@
     {
       label: '生产执行',
       value: '待启用',
-      description: '当前不展示模拟数据',
+      description: '业务接入后查看实绩',
       icon: 'ri:play-circle-line',
       tone: 'info'
     }
@@ -143,9 +150,9 @@
   ]
 
   const readinessItems = [
-    { label: '独立模块仓库', description: '版本与发布边界已隔离' },
-    { label: '平台运行时', description: '共享登录、主题与布局' },
-    { label: '菜单权限', description: '应用入口与角色授权已登记' }
+    { label: '应用入口', description: '制造工作台已接入平台' },
+    { label: '统一工作空间', description: '共享登录、主题与导航' },
+    { label: '访问权限', description: '菜单与角色授权已登记' }
   ]
 
   const roadmap = [
@@ -172,13 +179,23 @@
 
 <style scoped lang="scss">
   .mes-workbench {
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    height: var(--art-full-height);
+    min-height: 0;
+    overflow: hidden;
+
+    &__scrollbar {
+      flex: 1;
+      min-height: 0;
+    }
 
     &__content {
       display: grid;
-      flex: 1;
+      flex: 0 0 auto;
       grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.8fr);
-      gap: 12px;
+      gap: 16px;
+      align-content: start;
       min-height: 0;
     }
 
@@ -263,15 +280,11 @@
     gap: 12px;
     align-items: center;
     padding: 13px 16px;
-    background: linear-gradient(
-      110deg,
-      var(--el-color-primary-light-9),
-      var(--el-fill-color-lighter)
-    );
-    border: 1px solid var(--el-color-primary-light-8);
+    background: color-mix(in srgb, var(--theme-color) 8%, var(--el-bg-color));
+    border: 1px solid color-mix(in srgb, var(--theme-color) 20%, var(--el-border-color-lighter));
     border-radius: var(--el-border-radius-base);
 
-    > span {
+    &__icon {
       display: grid;
       place-items: center;
       width: 34px;
@@ -317,7 +330,7 @@
       border-top: 1px solid var(--el-border-color-lighter);
     }
 
-    li > span {
+    &__icon {
       display: grid;
       place-items: center;
       width: 28px;
@@ -325,6 +338,17 @@
       color: var(--el-color-success);
       background: var(--el-color-success-light-9);
       border-radius: 8px;
+    }
+
+    li > div {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    :deep(.el-tag) {
+      justify-self: end;
+      min-width: 60px;
+      white-space: nowrap;
     }
 
     strong,
@@ -418,7 +442,7 @@
       font-size: 12px;
       font-weight: 700;
       color: var(--el-color-primary);
-      background: var(--el-color-primary-light-9);
+      background: color-mix(in srgb, var(--theme-color) 10%, var(--el-bg-color));
       border-radius: 9px;
     }
 

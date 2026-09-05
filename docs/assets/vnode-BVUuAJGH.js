@@ -1,0 +1,1 @@
+import{Tt as e,ji as t,yn as n}from"./style-Cv8iiPWe.js";function r(t){return n(t)&&t.type===e}var i=e=>{let r=t(e)?e:[e],a=[];return r.forEach(e=>{t(e)?a.push(...i(e)):n(e)&&e.component?.subTree?a.push(e,...i(e.component.subTree)):n(e)&&t(e.children)?a.push(...i(e.children)):n(e)&&e.shapeFlag===2?a.push(...i(e.type())):a.push(e)}),a};export{r as n,i as t};
