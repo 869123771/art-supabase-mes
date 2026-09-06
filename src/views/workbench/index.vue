@@ -1,102 +1,96 @@
 <template>
-  <div class="mes-workbench art-full-height">
-    <ElScrollbar class="mes-workbench__scrollbar">
-      <div class="business-workspace-page">
-        <BusinessWorkspaceHeader
-          eyebrow="MANUFACTURING EXECUTION"
-          title="制造执行工作台"
-          density="compact"
-          description="串联计划、工艺、现场执行与质量追溯，按实施路线逐步启用生产业务。"
-          icon="ri:tools-line"
-          :tags="[
-            { label: '现场执行', type: 'primary' },
-            { label: '全过程追溯', type: 'success' },
-            { label: '建设准备中', type: 'info' }
-          ]"
-          :metrics="metrics"
-        />
+  <div class="mes-workbench business-workspace-page">
+    <BusinessWorkspaceHeader
+      eyebrow="MANUFACTURING EXECUTION"
+      title="制造执行工作台"
+      density="compact"
+      description="串联计划、工艺、现场执行与质量追溯，按实施路线逐步启用生产业务。"
+      icon="ri:tools-line"
+      :tags="[
+        { label: '现场执行', type: 'primary' },
+        { label: '全过程追溯', type: 'success' },
+        { label: '建设准备中', type: 'info' }
+      ]"
+      :metrics="metrics"
+    />
 
-        <div class="mes-workbench__content">
-          <ArtSectionCard
-            class="mes-workbench__flow-card"
-            title="生产执行闭环"
-            subtitle="以生产订单为主线，把排程、派工、报工、质检和完工沉淀为可追溯事件。"
-            preserve-content-structure
-          >
-            <template #actions
-              ><ElTag type="success" effect="plain" round>流程已规划</ElTag></template
-            >
-            <div class="production-line" aria-label="生产执行流程">
-              <div class="production-line__rail"></div>
-              <article v-for="(stage, index) in productionStages" :key="stage.title">
-                <span class="production-line__node"><ArtSvgIcon :icon="stage.icon" /></span>
-                <small>STEP {{ String(index + 1).padStart(2, '0') }}</small>
-                <strong>{{ stage.title }}</strong>
-                <p>{{ stage.description }}</p>
-              </article>
-            </div>
-            <div class="traceability-band">
-              <span class="traceability-band__icon"><ArtSvgIcon icon="ri:git-branch-line" /></span>
-              <div
-                ><small>追溯主线</small
-                ><strong>批次 / 序列号贯穿物料、设备、人员与质量记录</strong></div
-              >
-              <ElTag type="info" effect="plain">数据接入后启用</ElTag>
-            </div>
-          </ArtSectionCard>
-
-          <ArtSectionCard
-            class="mes-workbench__readiness-card"
-            title="上线准备"
-            subtitle="当前接入状态与首个落地里程碑。"
-            preserve-content-structure
-          >
-            <ul class="readiness-list">
-              <li v-for="item in readinessItems" :key="item.label">
-                <span class="readiness-list__icon"><ArtSvgIcon icon="ri:check-line" /></span>
-                <div
-                  ><strong>{{ item.label }}</strong
-                  ><small>{{ item.description }}</small></div
-                >
-                <ElTag size="small" type="success" effect="light" round>已完成</ElTag>
-              </li>
-            </ul>
-            <div class="next-step">
-              <span><ArtSvgIcon icon="ri:flag-line" /></span>
-              <div
-                ><small>下一步建设重点</small><strong>建立工艺路线与工序版本</strong
-                ><p>先稳定工艺语义，再接生产订单、派工与现场报工。</p></div
-              >
-            </div>
-          </ArtSectionCard>
-
-          <ArtSectionCard
-            class="mes-workbench__roadmap-card"
-            title="能力实施路线"
-            subtitle="从生产标准到现场闭环，再到质量和绩效分析。"
-            preserve-content-structure
-          >
-            <div class="roadmap-grid">
-              <article v-for="(phase, index) in roadmap" :key="phase.title">
-                <header
-                  ><span>{{ index + 1 }}</span
-                  ><div
-                    ><small>{{ phase.code }}</small
-                    ><strong>{{ phase.title }}</strong></div
-                  ></header
-                >
-                <p>{{ phase.description }}</p>
-                <div
-                  ><ElTag v-for="item in phase.items" :key="item" size="small" effect="plain">{{
-                    item
-                  }}</ElTag></div
-                >
-              </article>
-            </div>
-          </ArtSectionCard>
+    <div class="mes-workbench__content">
+      <ArtSectionCard
+        class="mes-workbench__flow-card"
+        title="生产执行闭环"
+        subtitle="以生产订单为主线，把排程、派工、报工、质检和完工沉淀为可追溯事件。"
+        preserve-content-structure
+      >
+        <template #actions><ElTag type="success" effect="plain" round>流程已规划</ElTag></template>
+        <div class="production-line" aria-label="生产执行流程">
+          <div class="production-line__rail"></div>
+          <article v-for="(stage, index) in productionStages" :key="stage.title">
+            <span class="production-line__node"><ArtSvgIcon :icon="stage.icon" /></span>
+            <small>STEP {{ String(index + 1).padStart(2, '0') }}</small>
+            <strong>{{ stage.title }}</strong>
+            <p>{{ stage.description }}</p>
+          </article>
         </div>
-      </div>
-    </ElScrollbar>
+        <div class="traceability-band">
+          <span class="traceability-band__icon"><ArtSvgIcon icon="ri:git-branch-line" /></span>
+          <div
+            ><small>追溯主线</small
+            ><strong>批次 / 序列号贯穿物料、设备、人员与质量记录</strong></div
+          >
+          <ElTag type="info" effect="plain">数据接入后启用</ElTag>
+        </div>
+      </ArtSectionCard>
+
+      <ArtSectionCard
+        class="mes-workbench__readiness-card"
+        title="上线准备"
+        subtitle="当前接入状态与首个落地里程碑。"
+        preserve-content-structure
+      >
+        <ul class="readiness-list">
+          <li v-for="item in readinessItems" :key="item.label">
+            <span class="readiness-list__icon"><ArtSvgIcon icon="ri:check-line" /></span>
+            <div
+              ><strong>{{ item.label }}</strong
+              ><small>{{ item.description }}</small></div
+            >
+            <ElTag size="small" type="success" effect="light" round>已完成</ElTag>
+          </li>
+        </ul>
+        <div class="next-step">
+          <span><ArtSvgIcon icon="ri:flag-line" /></span>
+          <div
+            ><small>下一步建设重点</small><strong>建立工艺路线与工序版本</strong
+            ><p>先稳定工艺语义，再接生产订单、派工与现场报工。</p></div
+          >
+        </div>
+      </ArtSectionCard>
+
+      <ArtSectionCard
+        class="mes-workbench__roadmap-card"
+        title="能力实施路线"
+        subtitle="从生产标准到现场闭环，再到质量和绩效分析。"
+        preserve-content-structure
+      >
+        <div class="roadmap-grid">
+          <article v-for="(phase, index) in roadmap" :key="phase.title">
+            <header
+              ><span>{{ index + 1 }}</span
+              ><div
+                ><small>{{ phase.code }}</small
+                ><strong>{{ phase.title }}</strong></div
+              ></header
+            >
+            <p>{{ phase.description }}</p>
+            <div
+              ><ElTag v-for="item in phase.items" :key="item" size="small" effect="plain">{{
+                item
+              }}</ElTag></div
+            >
+          </article>
+        </div>
+      </ArtSectionCard>
+    </div>
   </div>
 </template>
 
@@ -179,17 +173,6 @@
 
 <style scoped lang="scss">
   .mes-workbench {
-    display: flex;
-    flex-direction: column;
-    height: var(--art-full-height);
-    min-height: 0;
-    overflow: hidden;
-
-    &__scrollbar {
-      flex: 1;
-      min-height: 0;
-    }
-
     &__content {
       display: grid;
       flex: 0 0 auto;

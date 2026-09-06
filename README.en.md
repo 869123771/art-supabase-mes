@@ -1,36 +1,74 @@
-# art-supabase-mes
+<div align="center">
+  <h1>Art Supabase MES</h1>
+  <p><strong>Manufacturing execution for production planning, shop-floor operations, and end-to-end traceability</strong></p>
+  <p>A production-order-centered roadmap for scheduling, dispatching, reporting, inspection, completion, and lot/serial traceability.</p>
 
-#### Description
-{**When you're done, you can delete the content in this README and update the file with details for others getting started with your repository**}
+  <p>
+    <a href="https://gitee.com/wangyanghub/art-supabase-mes">Gitee</a>
+    ·
+    <a href="https://github.com/869123771/art-supabase-mes">GitHub</a>
+    ·
+    <a href="https://gitee.com/wangyanghub/art-supabase-pro">Platform</a>
+    ·
+    <a href="https://869123771.github.io/art-supabase-doc/modules/mes">Documentation</a>
+    ·
+    <a href="./README.md">简体中文</a>
+  </p>
+</div>
 
-#### Software Architecture
-Software architecture description
+## Positioning
 
-#### Installation
+Art Supabase MES is the manufacturing-execution application for Art Supabase Pro. Its target is a traceable production loop connecting standards, plans, shop-floor tasks, personnel and equipment results, quality outcomes, and material lots.
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+Authentication, tenancy, navigation, authorization, layout, shared components, stores, and the common Supabase client remain owned by [`art-supabase-pro`](https://gitee.com/wangyanghub/art-supabase-pro). MDM and its authoritative sources provide material, equipment, personnel, production-organization, work-center, and process-route identities.
 
-#### Instructions
+## Current Status
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+MES is currently in the business implementation preparation stage. The independent application shell, platform runtime, dynamic menu, role access, and manufacturing workbench are complete. Production orders, scheduling, dispatching, reporting, inspection, and traceability remain planned work; the repository does not present demonstration data as live production results.
 
-#### Contribution
+| Area | Status | Target |
+| --- | --- | --- |
+| Application foundation | Complete | Standalone runtime, platform loading, shared theme/navigation, and role access |
+| Production standards | Pending integration | Process routes, operation versions, work centers, and resource calendars |
+| Planning and scheduling | Planned | Production orders, capacity constraints, schedules, and task release |
+| Shop-floor execution | Planned | Dispatch, start, material issue, reporting, pause, changeover, and completion |
+| Quality and traceability | Planned | In-process inspection, defect handling, lot/serial identity, and production genealogy |
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+## Target Flow
 
+```text
+Production order
+  → constrained scheduling
+  → task dispatch
+  → start / material issue / reporting
+  → inspection and exception handling
+  → completion and finished-goods receipt
+  → lot / serial genealogy
+```
 
-#### Gitee Feature
+## Run Locally
 
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+Requirements: Node.js `>= 22.0.0` and pnpm `>= 11.9.0`.
+
+```powershell
+pnpm install
+pnpm dev
+```
+
+The default development URL is `http://localhost:3019`.
+
+```powershell
+pnpm check
+pnpm build
+pnpm preview
+```
+
+Production output is written to `docs/` with `/art-supabase-mes/` as the default public base path.
+
+## Platform Collaboration and Security
+
+Commit and push MES changes here, then update the `modules/art-supabase-mes` gitlink in the platform repository. Cross-domain data must use purpose-specific, minimum-field, tenant-isolated API/RPC contracts. Dispatch, reporting, inspection, completion, and reversal actions require explicit permissions and server-side state validation; UI visibility is never the final authorization boundary.
+
+## License
+
+Licensed under [MulanPSL-2.0](LICENSE).
