@@ -4,3 +4,4 @@ export const MES_MODULE = Object.freeze({
   routePrefix: '/mes',
   viewsRoot: 'src/views'
 })
+export * from './api'

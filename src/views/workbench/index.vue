@@ -9,7 +9,7 @@
       :tags="[
         { label: '现场执行', type: 'primary' },
         { label: '全过程追溯', type: 'success' },
-        { label: '建设准备中', type: 'info' }
+        { label: '首期能力已启用', type: 'success' }
       ]"
       :metrics="metrics"
     />
@@ -60,8 +60,8 @@
         <div class="next-step">
           <span><ArtSvgIcon icon="ri:flag-line" /></span>
           <div
-            ><small>下一步建设重点</small><strong>建立工艺路线与工序版本</strong
-            ><p>先稳定工艺语义，再接生产订单、派工与现场报工。</p></div
+            ><small>下一步建设重点</small><strong>现场报工与质量闭环</strong
+            ><p>在工单与工序任务基线上，继续接入产量、工时、检验与异常处置。</p></div
           >
         </div>
       </ArtSectionCard>
@@ -120,17 +120,17 @@
     },
     {
       label: '工艺主线',
-      value: '待配置',
-      description: '路线、工序与版本',
+      value: '已接入',
+      description: '复用 MDM 路线与工序',
       icon: 'ri:flow-chart',
-      tone: 'warning'
+      tone: 'success'
     },
     {
       label: '生产执行',
-      value: '待启用',
-      description: '业务接入后查看实绩',
+      value: '已启用',
+      description: '工单确认与工序排程',
       icon: 'ri:play-circle-line',
-      tone: 'info'
+      tone: 'success'
     }
   ]
 
@@ -146,7 +146,9 @@
   const readinessItems = [
     { label: '应用入口', description: '制造工作台已接入平台' },
     { label: '统一工作空间', description: '共享登录、主题与导航' },
-    { label: '访问权限', description: '菜单与角色授权已登记' }
+    { label: '访问权限', description: '菜单与角色授权已登记' },
+    { label: '生产工单', description: '确认时固化 BOM 与工艺路线快照' },
+    { label: '工序任务', description: '支持工作中心排程与受控关闭' }
   ]
 
   const roadmap = [
