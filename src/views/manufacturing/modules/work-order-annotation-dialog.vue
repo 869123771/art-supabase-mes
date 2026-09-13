@@ -22,6 +22,7 @@
 </template>
 
 <script setup lang="ts">
+  import { normalizeNullableText } from '@/utils/form/normalize'
   import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtForm, { type FormItem } from '@/components/core/forms/art-form/index.vue'
@@ -90,7 +91,7 @@
           await annotateWorkOrder(
             currentId.value,
             model.urgency,
-            model.specialRequirement.trim() || null
+            normalizeNullableText(model.specialRequirement)
           )
           emit('success')
           return true
