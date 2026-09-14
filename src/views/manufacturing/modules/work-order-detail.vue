@@ -19,6 +19,7 @@
   import ArtDescriptions from '@/components/core/base/art-descriptions/index.vue'
   import ArtSectionTitle from '@/components/core/surfaces/art-section-title/index.vue'
   import type { MesReferenceOption, MesReferences, MesWorkOrder } from '@mes/api'
+  import WorkOrderUrgencyLabel from './work-order-urgency-label.vue'
 
   const props = defineProps<{
     record: MesWorkOrder
@@ -76,7 +77,21 @@
           { key: 'materialCodeSnapshot', label: '物料编码', field: 'materialCodeSnapshot' },
           { key: 'materialNameSnapshot', label: '产品名称', field: 'materialNameSnapshot' },
           { key: 'specificationSnapshot', label: '规格型号', field: 'specificationSnapshot' },
+          { key: 'drawingNoSnapshot', label: '图号', field: 'drawingNoSnapshot' },
           { key: 'unitSnapshot', label: '生产单位', field: 'unitSnapshot' },
+          { key: 'plannerNameSnapshot', label: '计划员', field: 'plannerNameSnapshot' },
+          { key: 'dispatcherNameSnapshot', label: '调度员', field: 'dispatcherNameSnapshot' },
+          {
+            key: 'inboundWarehouseNameSnapshot',
+            label: '入库仓库',
+            field: 'inboundWarehouseNameSnapshot'
+          },
+          {
+            key: 'isInitialDocument',
+            label: '初始化单据',
+            field: 'isInitialDocument',
+            formatter: (value) => (value ? '是' : '否')
+          },
           { key: 'orderQuantity', label: '工单数量', field: 'orderQuantity', format: 'number' },
           {
             key: 'specificationQuantity',
@@ -97,8 +112,7 @@
             key: 'urgency',
             label: '紧急程度',
             field: 'urgency',
-            dictCode: 'mesWorkOrderUrgency',
-            dictDisplay: 'tag'
+            render: (_value, row) => h(WorkOrderUrgencyLabel, { urgency: row.urgency })
           },
           {
             key: 'completedQuantity',

@@ -10,6 +10,63 @@ export interface MesReferenceOption {
   unit?: string
 }
 
+export interface MesMaterialOption extends MesReferenceOption {
+  tenantId: string
+  drawingNo?: string
+  productionUnitId?: string
+  productionUnitName?: string
+  plannerId?: string
+  plannerName?: string
+  dispatcherId?: string
+  dispatcherName?: string
+  inboundWarehouseId?: string
+  inboundWarehouseName?: string
+}
+
+export interface MesWorkOrderBomItemSnapshot {
+  id: string
+  componentMaterialId: string
+  componentMaterialCode: string
+  componentMaterialName: string
+  componentSpecification: string
+  sequenceNo: number
+  quantity: number
+  unitId: string
+  positionNo: string | null
+  operationName: string | null
+  assignedRouteStepId: string | null
+  assignedOperationCode: string | null
+  assignedOperationName: string | null
+  assignmentSource: 'configured' | 'first_operation' | 'unassigned'
+}
+
+export interface MesWorkOrderBomSnapshot {
+  id: string
+  bomCode: string
+  version: string
+  status: string
+  items: MesWorkOrderBomItemSnapshot[]
+}
+
+export interface MesWorkOrderRouteStepSnapshot {
+  id: string
+  code: string
+  name: string
+  sort: number
+  sequenceType: string
+  workCenterId: string | null
+  departmentId: string | null
+  description: string
+}
+
+export interface MesWorkOrderRouteSnapshot {
+  id?: string
+  name?: string
+  code?: string
+  version?: string
+  steps?: MesWorkOrderRouteStepSnapshot[]
+}
+
 export interface MesReferences {
   materials: MesReferenceOption[]
   customers: MesReferenceOption[]
@@ -29,6 +86,7 @@ export interface MesWorkOrder {
   materialId: string
   orderQuantity: number
   productionUnitId: string | null
+  isInitialDocument: boolean
   plannedStartDate: string | null
   plannedEndDate: string
   source: string
@@ -52,8 +110,18 @@ export interface MesWorkOrder {
   materialCodeSnapshot: string
   materialNameSnapshot: string
   specificationSnapshot: string
+  drawingNoSnapshot: string
   unitSnapshot: string
+  workOrderTypeNameSnapshot: string
+  plannerId: string | null
+  plannerNameSnapshot: string
+  dispatcherId: string | null
+  dispatcherNameSnapshot: string
+  inboundWarehouseId: string | null
+  inboundWarehouseNameSnapshot: string
   projectNameSnapshot: string | null
+  bomSnapshot: MesWorkOrderBomSnapshot[]
+  routeSnapshot: MesWorkOrderRouteSnapshot
   confirmedAt: string | null
   closedAt: string | null
   deletedAt: string | null
@@ -69,6 +137,7 @@ export type MesWorkOrderInput = Pick<
   | 'constructionNo'
   | 'materialId'
   | 'orderQuantity'
+  | 'isInitialDocument'
   | 'plannedStartDate'
   | 'plannedEndDate'
   | 'source'
@@ -107,7 +176,22 @@ export interface MesOperationTask {
   closedAt: string | null
   deletedAt: string | null
   updateTime: string
-  workOrder?: Pick<MesWorkOrder, 'workOrderNo' | 'materialCodeSnapshot' | 'materialNameSnapshot'>
+  workOrder?: Pick<
+    MesWorkOrder,
+    | 'workOrderNo'
+    | 'materialCodeSnapshot'
+    | 'materialNameSnapshot'
+    | 'plannedStartDate'
+    | 'plannedEndDate'
+    | 'urgency'
+  >
+}
+
+export interface MesOperationTaskScheduleInput {
+  id: string
+  workCenterId: string
+  plannedStartDate: string
+  plannedEndDate: string
 }
 
 export interface MesListQuery {
@@ -115,8 +199,25 @@ export interface MesListQuery {
   size: number
   tenantId?: string | null
   keyword?: string
-  status?: string
+  status?: string | string[]
   includeDeleted?: boolean
   plannedDates?: [string, string]
   workCenterId?: string
+}
+
+export interface MesBatchFailure {
+  id: string
+  message: string
+}
+
+export interface MesBatchResult {
+  successIds: string[]
+  failures: MesBatchFailure[]
+}
+
+export interface MesMaterialOptionQuery {
+  tenantId: string
+  keyword?: string
+  current: number
+  size: number
 }

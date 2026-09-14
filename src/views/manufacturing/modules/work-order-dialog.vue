@@ -6,7 +6,7 @@
         icon="ri:file-list-3-line"
         eyebrow="MANUFACTURING EXECUTION"
         :title="heading"
-        description="确认前维护计划信息；确认后将固化物料、BOM 与工艺路线，形成可追溯的执行基线。"
+        description="确认前维护计划信息；保存后即集成物料、BOM 与工艺路线，形成可追溯的执行基线。"
       />
       <WorkOrderDetail
         v-if="readonly && detailRecord"
@@ -26,6 +26,26 @@
         :show-reset="false"
         :show-submit="false"
       >
+        <template #materialId>
+          <ArtTableSingleSelect
+            :model-value="model.materialId || undefined"
+            :selected-data="selectedMaterial ? [selectedMaterial] : []"
+            :api-fn="fetchMaterialOptions"
+            :columns="materialColumns"
+            :label-key="materialDescription"
+            description-key="code"
+            title="选择物料描述"
+            subtitle="支持物料编码、名称、规格型号和图号综合查询"
+            placeholder="请选择物料描述"
+            search-placeholder="搜索物料编码、名称、规格型号或图号"
+            show-pagination
+            :disabled="locked"
+            @change="handleMaterialChange"
+          />
+        </template>
+        <template #urgency>
+          <WorkOrderUrgencySegmented v-model="model.urgency" :disabled="locked" />
+        </template>
         <template #merchandiserId
           ><ArtEmployeeSelect
             :model-value="model.merchandiserId ?? undefined"
@@ -48,18 +68,27 @@
 </template>
 
 <script setup lang="ts">
-  import { cloneDeep } from 'lodash-es'
+  import { cloneDeep, pick } from 'lodash-es'
+  import { normalizeNullableText } from '@/utils/form/normalize'
   import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtForm, { type FormItem } from '@/components/core/forms/art-form/index.vue'
+  import ArtTableSingleSelect from '@/components/core/forms/art-data-select/table-single.vue'
+  import type {
+    DataSelectFetchParams,
+    DataSelectRecord
+  } from '@/components/core/forms/art-data-select/types'
   import ArtEmployeeSelect from '@/components/business/art-employee-select/index.vue'
   import type { EmployeeIntegrationItem } from '@/api/integration/employees'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
   import { useUserStore } from '@/store/modules/user'
   import WorkOrderDetail from './work-order-detail.vue'
+  import WorkOrderUrgencySegmented from './work-order-urgency-segmented.vue'
   import {
+    fetchMesMaterialOptions,
     fetchMesReferences,
     saveWorkOrder,
+    type MesMaterialOption,
     type MesReferences,
     type MesWorkOrder,
     type MesWorkOrderInput
@@ -70,6 +99,16 @@
     tenantOptions: Array<{ label: string; value: string }>
     row?: MesWorkOrder
     readonly?: boolean
+  }
+
+  interface WorkOrderFormModel extends MesWorkOrderInput {
+    materialCode: string
+    specificationModel: string
+    drawingNo: string
+    productionUnitName: string
+    plannerName: string
+    dispatcherName: string
+    inboundWarehouseName: string
   }
 
   const emit = defineEmits<{ success: [mode: 'add' | 'edit'] }>()
@@ -88,14 +127,22 @@
   const { getDictMap } = storeToRefs(userStore)
   const readonly = ref(false)
   const detailRecord = ref<MesWorkOrder>()
-  const model = reactive<MesWorkOrderInput>({
+  const model = reactive<WorkOrderFormModel>({
     tenantId: '',
     workOrderNo: '',
     workOrderTypeId: null,
     projectId: null,
     constructionNo: null,
     materialId: '',
+    materialCode: '',
+    specificationModel: '',
+    drawingNo: '',
+    productionUnitName: '',
+    plannerName: '',
+    dispatcherName: '',
+    inboundWarehouseName: '',
     orderQuantity: 1,
+    isInitialDocument: false,
     plannedStartDate: null,
     plannedEndDate: '',
     source: 'manual',
@@ -112,6 +159,7 @@
     salesOrderNo: null,
     salesOrderQuantity: null
   })
+  const selectedMaterial = shallowRef<MesMaterialOption>()
   const currentId = ref('')
   const heading = computed(() =>
     readonly.value ? '工单详情' : currentId.value ? '编辑工单' : '新增工单'
@@ -120,6 +168,20 @@
     items.map((item) => ({ label: `${item.name} · ${item.code}`, value: item.id }))
   const locked = computed(() => readonly.value)
   const dictionaryOptions = (code: string) => getDictMap.value[code] ?? []
+  const materialDescription = (row: DataSelectRecord): string => {
+    const material = row as MesMaterialOption
+    return [material.name, material.specification, material.drawingNo].filter(Boolean).join(' · ')
+  }
+  const materialColumns = [
+    { prop: 'code', label: '物料编码', minWidth: 150 },
+    { prop: 'name', label: '物料描述', minWidth: 180 },
+    { prop: 'specification', label: '规格型号', minWidth: 140 },
+    { prop: 'drawingNo', label: '图号', minWidth: 120 },
+    { prop: 'productionUnitName', label: '生产单位', minWidth: 110 },
+    { prop: 'plannerName', label: '计划员', minWidth: 110 },
+    { prop: 'dispatcherName', label: '调度员', minWidth: 110 },
+    { prop: 'inboundWarehouseName', label: '入库仓库', minWidth: 130 }
+  ]
   const employeeSelection = (id?: string | null): EmployeeIntegrationItem[] => {
     const item = references.value.employees.find((employee) => employee.id === id)
     return item
@@ -145,7 +207,7 @@
       props: {
         disabled: locked.value || !!currentId.value,
         filterable: true,
-        onChange: loadReferences
+        onChange: handleTenantChange
       },
       help: '全部租户视图下新增时，必须明确数据归属。'
     },
@@ -172,11 +234,17 @@
     { key: 'plan', label: '产品与计划', type: 'divider', span: 24 },
     {
       key: 'materialId',
-      label: '产品物料',
-      type: 'select',
-      options: option(references.value.materials),
-      props: { disabled: locked.value, filterable: true }
+      label: '物料描述',
+      type: 'slot',
+      span: 24
     },
+    { key: 'materialCode', label: '物料编码', type: 'text', span: 8 },
+    { key: 'specificationModel', label: '规格型号', type: 'text', span: 8 },
+    { key: 'drawingNo', label: '图号', type: 'text', span: 8 },
+    { key: 'productionUnitName', label: '生产单位', type: 'text', span: 8 },
+    { key: 'plannerName', label: '计划员', type: 'text', span: 8 },
+    { key: 'dispatcherName', label: '调度员', type: 'text', span: 8 },
+    { key: 'inboundWarehouseName', label: '入库仓库', type: 'text', span: 8 },
     {
       key: 'orderQuantity',
       label: '工单数量',
@@ -205,9 +273,16 @@
     {
       key: 'urgency',
       label: '紧急程度',
-      type: 'select',
-      options: dictionaryOptions('mesWorkOrderUrgency'),
-      props: { disabled: locked.value }
+      type: 'slot',
+      span: 24
+    },
+    {
+      key: 'isInitialDocument',
+      label: '初始化单据',
+      type: 'switch',
+      span: 24,
+      props: { disabled: locked.value, activeText: '是', inactiveText: '否' },
+      help: '默认关闭；开启后用于标识初始化导入或期初生产单据。'
     },
     { key: 'sales', label: '销售协同', type: 'divider', span: 24 },
     {
@@ -260,7 +335,7 @@
   ])
   const rules = {
     tenantId: [{ required: true, message: '请选择所属租户', trigger: 'change' }],
-    materialId: [{ required: true, message: '请选择产品物料', trigger: 'change' }],
+    materialId: [{ required: true, message: '请选择物料描述', trigger: 'change' }],
     orderQuantity: [{ required: true, message: '请输入工单数量', trigger: 'blur' }],
     plannedEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }]
   }
@@ -268,12 +343,100 @@
   async function loadReferences() {
     references.value = await fetchMesReferences(model.tenantId)
   }
+  async function handleTenantChange(): Promise<void> {
+    applyMaterial()
+    await loadReferences()
+  }
+  async function fetchMaterialOptions(params: DataSelectFetchParams) {
+    if (!model.tenantId) return { data: [], total: 0 }
+    return fetchMesMaterialOptions({
+      tenantId: model.tenantId,
+      keyword: params.keyword,
+      current: params.page,
+      size: params.pageSize
+    })
+  }
+  function applyMaterial(material?: MesMaterialOption): void {
+    selectedMaterial.value = material
+    Object.assign(model, {
+      materialId: material?.id || '',
+      materialCode: material?.code || '',
+      specificationModel: material?.specification || '',
+      drawingNo: material?.drawingNo || '',
+      productionUnitName: material?.productionUnitName || material?.unit || '',
+      plannerName: material?.plannerName || '',
+      dispatcherName: material?.dispatcherName || '',
+      inboundWarehouseName: material?.inboundWarehouseName || ''
+    })
+  }
+  function handleMaterialChange(_value: unknown, rows: DataSelectRecord[]): void {
+    applyMaterial(rows[0] as MesMaterialOption | undefined)
+  }
+  const workOrderInputKeys = [
+    'tenantId',
+    'workOrderNo',
+    'workOrderTypeId',
+    'projectId',
+    'constructionNo',
+    'materialId',
+    'orderQuantity',
+    'isInitialDocument',
+    'plannedStartDate',
+    'plannedEndDate',
+    'source',
+    'urgency',
+    'remark',
+    'specialRequirement',
+    'trackingNo',
+    'followNo',
+    'merchandiserId',
+    'salespersonId',
+    'customerCode',
+    'customProcessCode',
+    'specificationQuantity',
+    'salesOrderNo',
+    'salesOrderQuantity'
+  ] as const satisfies readonly (keyof MesWorkOrderInput)[]
+  function buildPayload(): MesWorkOrderInput {
+    const payload = pick(model, workOrderInputKeys)
+    return {
+      ...payload,
+      workOrderNo: payload.workOrderNo.trim(),
+      constructionNo: normalizeNullableText(payload.constructionNo),
+      remark: payload.remark.trim(),
+      specialRequirement: normalizeNullableText(payload.specialRequirement),
+      trackingNo: normalizeNullableText(payload.trackingNo),
+      followNo: normalizeNullableText(payload.followNo),
+      customerCode: normalizeNullableText(payload.customerCode),
+      customProcessCode: normalizeNullableText(payload.customProcessCode),
+      salesOrderNo: normalizeNullableText(payload.salesOrderNo)
+    }
+  }
   const handleOpen = async (data: WorkOrderDialogOpenData) => {
     tenantOptions.value = data.tenantOptions
     detailRecord.value = data.row
     readonly.value =
       !!data.readonly || !!(data.row && !['pending', 'abnormal'].includes(data.row.status))
     currentId.value = data.row?.id || ''
+    selectedMaterial.value = data.row
+      ? {
+          id: data.row.materialId,
+          tenantId: data.row.tenantId,
+          code: data.row.materialCodeSnapshot,
+          name: data.row.materialNameSnapshot,
+          specification: data.row.specificationSnapshot,
+          drawingNo: data.row.drawingNoSnapshot,
+          unit: data.row.unitSnapshot,
+          productionUnitId: data.row.productionUnitId || undefined,
+          productionUnitName: data.row.unitSnapshot,
+          plannerId: data.row.plannerId || undefined,
+          plannerName: data.row.plannerNameSnapshot,
+          dispatcherId: data.row.dispatcherId || undefined,
+          dispatcherName: data.row.dispatcherNameSnapshot,
+          inboundWarehouseId: data.row.inboundWarehouseId || undefined,
+          inboundWarehouseName: data.row.inboundWarehouseNameSnapshot
+        }
+      : undefined
     Object.assign(
       model,
       data.row
@@ -285,7 +448,15 @@
             projectId: null,
             constructionNo: null,
             materialId: '',
+            materialCode: '',
+            specificationModel: '',
+            drawingNo: '',
+            productionUnitName: '',
+            plannerName: '',
+            dispatcherName: '',
+            inboundWarehouseName: '',
             orderQuantity: 1,
+            isInitialDocument: false,
             plannedStartDate: null,
             plannedEndDate: '',
             source: 'manual',
@@ -303,6 +474,7 @@
             salesOrderQuantity: null
           }
     )
+    if (selectedMaterial.value) applyMaterial(selectedMaterial.value)
     await Promise.all(
       ['mesWorkOrderSource', 'mesWorkOrderUrgency', 'mesWorkOrderStatus'].map((code) =>
         userStore.ensureDictLoaded(code)
@@ -326,7 +498,7 @@
       onConfirm: async () => {
         try {
           await formRef.value?.validate()
-          const payload = { ...model }
+          const payload = buildPayload()
           await saveWorkOrder(payload, currentId.value || undefined)
           emit('success', currentId.value ? 'edit' : 'add')
           return true

@@ -16,7 +16,11 @@
         label-position="top"
         :show-reset="false"
         :show-submit="false"
-      />
+      >
+        <template #urgency>
+          <WorkOrderUrgencySegmented v-model="model.urgency" />
+        </template>
+      </ArtForm>
     </div>
   </ArtDialog>
 </template>
@@ -27,8 +31,8 @@
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtForm, { type FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
-  import { useUserStore } from '@/store/modules/user'
   import { annotateWorkOrder, type MesWorkOrder } from '@mes/api'
+  import WorkOrderUrgencySegmented from './work-order-urgency-segmented.vue'
 
   export interface WorkOrderAnnotationDialogOpenData {
     row: MesWorkOrder
@@ -37,8 +41,6 @@
   const emit = defineEmits<{ success: [] }>()
   const dialogRef = ref<ArtDialogExpose<WorkOrderAnnotationDialogOpenData>>()
   const formRef = ref<InstanceType<typeof ArtForm>>()
-  const userStore = useUserStore()
-  const { getDictMap } = storeToRefs(userStore)
   const currentOrderNo = ref('')
   const currentId = ref('')
   const model = reactive<{
@@ -51,10 +53,9 @@
   const items = computed<FormItem[]>(() => [
     {
       key: 'urgency',
-      label: '加急状态',
-      type: 'select',
+      label: '紧急程度',
+      type: 'slot',
       span: 24,
-      options: getDictMap.value.mesWorkOrderUrgency ?? [],
       help: '紧急程度会直接显示在工单列表，便于生产人员快速识别。'
     },
     {
@@ -75,7 +76,6 @@
   }
 
   const handleOpen = async (data: WorkOrderAnnotationDialogOpenData) => {
-    await userStore.ensureDictLoaded('mesWorkOrderUrgency')
     currentId.value = data.row.id
     currentOrderNo.value = data.row.workOrderNo
     model.urgency = data.row.urgency

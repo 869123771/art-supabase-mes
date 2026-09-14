@@ -13,26 +13,100 @@
       </BusinessWorkspaceHeader>
 
       <ArtTableQuery
+        :key="routeName"
         ref="tableRef"
         v-model="table.search"
         :api-fn="fetchRows"
+        :immediate="false"
         :search-items="searchItems"
         :columns-factory="columnsFactory"
         :header-actions="headerActions"
-        :selection-actions="selectionActions"
         header-actions-placement="workspace"
         :search-bar-props="{ span: 6, labelWidth: 82, showExpand: false }"
         :table-props="{
           rowKey: 'id',
           tableLayout: 'fixed',
+          rowClassName: tableRowClassName,
           emptyText: `暂无${title}`,
           emptyDescription: emptyDescription
         }"
         focusable
-      />
+      >
+        <template #selection-bar="{ selectedRows, selectedCount, clearSelection }">
+          <div class="manufacturing-page__selection-bar" role="region" aria-label="批量操作">
+            <div class="manufacturing-page__selection-summary" aria-live="polite">
+              <ArtSvgIcon icon="ri:checkbox-circle-line" aria-hidden="true" />
+              <span
+                >已选择 <strong>{{ selectedCount }}</strong> 项</span
+              >
+            </div>
+            <span class="manufacturing-page__selection-divider" aria-hidden="true" />
+
+            <template v-if="isWorkOrder">
+              <ElButton
+                v-auth="'MesWorkOrder:Copy'"
+                type="primary"
+                plain
+                :disabled="selectedCount !== 1 || batchBusy"
+                @click="handleCopySelected(selectedRows as MesWorkOrder[], clearSelection)"
+              >
+                <ArtSvgIcon icon="ri:file-copy-2-line" />
+                复制
+              </ElButton>
+              <ElDropdown
+                trigger="click"
+                :disabled="batchBusy || !visibleBatchCommands.length"
+                @command="(command) => handleBatchCommand(String(command), selectedRows as MesWorkOrder[], clearSelection)"
+              >
+                <ElButton type="primary" :loading="batchBusy">
+                  <ArtSvgIcon icon="ri:function-add-line" />
+                  批量操作
+                  <ArtSvgIcon icon="ri:arrow-down-s-line" />
+                </ElButton>
+                <template #dropdown>
+                  <ElDropdownMenu>
+                    <ElDropdownItem
+                      v-for="item in visibleBatchCommands"
+                      :key="item.key"
+                      :command="item.key"
+                      :divided="item.divided"
+                    >
+                      <span class="manufacturing-page__batch-item">
+                        <ArtSvgIcon :icon="item.icon" />
+                        {{ item.label }}
+                      </span>
+                    </ElDropdownItem>
+                  </ElDropdownMenu>
+                </template>
+              </ElDropdown>
+            </template>
+            <template v-else>
+              <ElButton
+                v-auth="'MesOperationTask:Close'"
+                type="primary"
+                plain
+                :loading="batchBusy"
+                @click="handleTaskBatch(selectedRows as MesOperationTask[], 'close', clearSelection)"
+                >批量结案</ElButton
+              >
+              <ElButton
+                v-auth="'MesOperationTask:Delete'"
+                type="danger"
+                plain
+                :disabled="batchBusy"
+                @click="handleTaskBatch(selectedRows as MesOperationTask[], 'delete', clearSelection)"
+                >批量删除</ElButton
+              >
+            </template>
+            <ElButton text :disabled="batchBusy" @click="clearSelection">取消选择</ElButton>
+          </div>
+        </template>
+      </ArtTableQuery>
 
       <WorkOrderDialog ref="workOrderDialogRef" @success="refreshAfterSave" />
       <WorkOrderAnnotationDialog ref="annotationDialogRef" @success="refreshAfterSave" />
+      <WorkOrderSnapshotDialog ref="snapshotDialogRef" />
+      <WorkOrderDueDateDialog ref="dueDateDialogRef" @success="handleDueDateSuccess" />
       <ScheduleDialog ref="scheduleDialogRef" @success="refreshAfterSave" />
       <TaskDetailDialog ref="taskDetailDialogRef" />
     </div>
@@ -41,13 +115,16 @@
 
 <script setup lang="tsx">
   import dayjs from 'dayjs'
-  import { ElTag } from 'element-plus'
+  import { ElMessage, ElTag } from 'element-plus'
+  import { useAuth } from '@/hooks/core/useAuth'
   import { useArtFeedback } from '@/hooks/core/useArtFeedback'
+  import { useTenantScopeAccessPolicy } from '@/hooks/core/useTenantScopeAccessPolicy'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
   import { useUserStore } from '@/store/modules/user'
   import ArtPermissionGuard from '@/components/core/feedback/art-permission-guard/index.vue'
   import ArtButtonMore from '@/components/core/forms/art-button-more/index.vue'
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
+  import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import BusinessTableWorkspaceActions from '@/components/business/business-table-workspace-actions/index.vue'
   import BusinessTableRowActions from '@/components/business/business-table-row-actions/index.vue'
   import BusinessWorkspaceHeader, {
@@ -57,11 +134,12 @@
   import type { SearchFormItem } from '@/components/core/forms/art-search-bar/index.vue'
   import type {
     ArtTableQueryExpose,
-    ArtTableQueryHeaderAction,
-    ArtTableQueryHeaderActionContext
+    ArtTableQueryHeaderAction
   } from '@/components/core/tables/art-table-query/index.vue'
   import type { ColumnOption } from '@/types'
   import {
+    batchTransitionWorkOrders,
+    copyWorkOrders,
     fetchMesReferences,
     fetchOperationTasks,
     fetchWorkOrders,
@@ -69,6 +147,7 @@
     transitionOperationTask,
     transitionWorkOrder,
     type MesOperationTask,
+    type MesBatchResult,
     type MesReferenceOption,
     type MesWorkOrder,
     type MesWorkOrderInput
@@ -78,6 +157,14 @@
     type WorkOrderAnnotationDialogOpenData
   } from './modules/work-order-annotation-dialog.vue'
   import WorkOrderDialog, { type WorkOrderDialogOpenData } from './modules/work-order-dialog.vue'
+  import WorkOrderDueDateDialog, {
+    type WorkOrderDueDateDialogOpenData
+  } from './modules/work-order-due-date-dialog.vue'
+  import WorkOrderSnapshotDialog, {
+    type WorkOrderSnapshotDialogOpenData,
+    type WorkOrderSnapshotMode
+  } from './modules/work-order-snapshot-dialog.vue'
+  import WorkOrderUrgencyLabel from './modules/work-order-urgency-label.vue'
   import TaskDetailDialog, { type TaskDetailDialogOpenData } from './modules/task-detail-dialog.vue'
 
   defineOptions({ name: 'MesManufacturing' })
@@ -94,6 +181,9 @@
     'MesWorkOrder:Close',
     'MesWorkOrder:Reopen',
     'MesWorkOrder:Restore',
+    'MesWorkOrder:Copy',
+    'MesWorkOrder:Get',
+    'MesWorkOrder:MaintainDueDate',
     'MesOperationTask:View',
     'MesOperationTask:Export',
     'MesOperationTask:Schedule',
@@ -106,11 +196,11 @@
   const route = useRoute()
   const isWorkOrder = computed(() => route.path.endsWith('/work-order'))
   const routeName = computed(() => (isWorkOrder.value ? 'MesWorkOrder' : 'MesOperationTask'))
-  const title = computed(() => (isWorkOrder.value ? '工单管理' : '工序任务'))
+  const title = computed(() => (isWorkOrder.value ? '生产工单' : '工序任务'))
   const icon = computed(() => (isWorkOrder.value ? 'ri:file-list-3-line' : 'ri:git-merge-line'))
   const description = computed(() =>
     isWorkOrder.value
-      ? '统一创建、确认和跟踪生产工单，确认时固化 BOM 与工艺路线执行基线。'
+      ? '统一创建、确认和跟踪生产工单，保存时集成 BOM 与工艺路线执行基线。'
       : '承接已确认工单的工序明细，完成工作中心排程、关闭与异常回退。'
   )
   const emptyDescription = computed(() =>
@@ -125,13 +215,23 @@
   const annotationDialogRef = ref<{
     handleOpen: (data: WorkOrderAnnotationDialogOpenData) => Promise<void>
   }>()
+  const snapshotDialogRef = ref<{
+    handleOpen: (data: WorkOrderSnapshotDialogOpenData) => Promise<void>
+  }>()
+  const dueDateDialogRef = ref<{
+    handleOpen: (data: WorkOrderDueDateDialogOpenData) => Promise<void>
+  }>()
   const scheduleDialogRef = ref<{ handleOpen: (data: ScheduleDialogOpenData) => Promise<void> }>()
   const taskDetailDialogRef = ref<{
     handleOpen: (data: TaskDetailDialogOpenData) => Promise<void>
   }>()
   const tenantScopeStore = useTenantScopeStore()
   const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
-  const { confirmDelete } = useArtFeedback()
+  const { hasAuth } = useAuth()
+  const { isCrossTenantReadOnly } = useTenantScopeAccessPolicy()
+  const { confirmAction, confirmDelete } = useArtFeedback()
+  const batchBusy = ref(false)
+  const printRowIds = ref<Set<string>>(new Set())
   const referenceState = reactive({
     employees: [] as MesReferenceOption[],
     workCenters: [] as MesReferenceOption[]
@@ -187,7 +287,7 @@
     pending: { label: '待确认', type: 'info' },
     abnormal: { label: '异常', type: 'danger' },
     confirmed: { label: '已确认', type: 'success' },
-    closed: { label: '已关闭', type: 'info' },
+    closed: { label: '已结案', type: 'info' },
     unscheduled: { label: '未排程', type: 'warning' },
     scheduled: { label: '已排程', type: 'primary' },
     processing: { label: '加工中', type: 'success' }
@@ -195,7 +295,7 @@
   const table = reactive({
     search: {
       keyword: '',
-      status: '',
+      status: [] as string[],
       plannedDates: undefined as [string, string] | undefined,
       includeDeleted: false,
       workCenterId: ''
@@ -216,7 +316,14 @@
         key: 'status',
         label: '业务状态',
         type: 'select',
-        props: { clearable: true, options: statusOptions.value, placeholder: '全部状态' }
+        props: {
+          clearable: true,
+          multiple: true,
+          collapseTags: true,
+          collapseTagsTooltip: true,
+          options: statusOptions.value,
+          placeholder: '全部状态'
+        }
       }
     ]
     if (isWorkOrder.value)
@@ -257,6 +364,13 @@
             onClick: () => openWorkOrder()
           },
           {
+            key: 'get',
+            label: '获取工单',
+            icon: 'ri:download-cloud-2-line',
+            permission: 'MesWorkOrder:Get',
+            onClick: handleGetWorkOrders
+          },
+          {
             type: 'import',
             label: '导入',
             permission: 'MesWorkOrder:Import',
@@ -277,6 +391,7 @@
                 plannedStartDate: null,
                 source: 'manual',
                 urgency: 'normal',
+                isInitialDocument: false,
                 remark: '',
                 specialRequirement: null,
                 trackingNo: null,
@@ -305,33 +420,6 @@
               { key: 'plannedEndDate', title: '计划结束' },
               { key: 'status', title: '状态' }
             ]
-          },
-          {
-            key: 'print',
-            label: '批量打印',
-            icon: 'ri:printer-line',
-            permission: 'MesWorkOrder:Print',
-            selectionRequired: true,
-            onClick: async ({ selectedRows }) => {
-              await runBatch(selectedRows as MesWorkOrder[], 'print')
-              window.print()
-            }
-          },
-          {
-            key: 'confirm',
-            label: '批量确认',
-            icon: 'ri:checkbox-circle-line',
-            permission: 'MesWorkOrder:Confirm',
-            selectionRequired: true,
-            onClick: ({ selectedRows }) => runBatch(selectedRows as MesWorkOrder[], 'confirm')
-          },
-          {
-            key: 'close',
-            label: '批量结案',
-            icon: 'ri:archive-line',
-            permission: 'MesWorkOrder:Close',
-            selectionRequired: true,
-            onClick: ({ selectedRows }) => runBatch(selectedRows as MesWorkOrder[], 'close')
           }
         ]
       : [
@@ -364,25 +452,57 @@
           }
         ]
   )
-  const selectionActions = computed<ArtTableQueryHeaderAction[]>(() => [
+  interface BatchCommandOption {
+    key: 'reference' | 'print' | 'confirm' | 'close' | 'delete' | 'due-date'
+    label: string
+    icon: string
+    permission: string
+    divided?: boolean
+  }
+  const batchCommands: BatchCommandOption[] = [
     {
-      type: 'delete',
-      permission: `${routeName.value}:Delete`,
-      content: ({ selectedCount }: ArtTableQueryHeaderActionContext) =>
-        `确定删除选中的 ${selectedCount} 条${title.value}吗？`,
-      onClick: async ({ selectedRows, api }) => {
-        if (isWorkOrder.value) await runBatch(selectedRows as MesWorkOrder[], 'delete', false)
-        else
-          await Promise.all(
-            (selectedRows as MesOperationTask[]).map((row) =>
-              transitionOperationTask(row.id, 'delete')
-            )
-          )
-        await api.refreshRemove()
-      }
+      key: 'reference',
+      label: '批量参考',
+      icon: 'ri:file-copy-2-line',
+      permission: 'MesWorkOrder:Copy'
+    },
+    {
+      key: 'print',
+      label: '批量打印',
+      icon: 'ri:printer-line',
+      permission: 'MesWorkOrder:Print'
+    },
+    {
+      key: 'confirm',
+      label: '批量确认',
+      icon: 'ri:checkbox-circle-line',
+      permission: 'MesWorkOrder:Confirm'
+    },
+    {
+      key: 'close',
+      label: '批量结案',
+      icon: 'ri:archive-line',
+      permission: 'MesWorkOrder:Close'
+    },
+    {
+      key: 'delete',
+      label: '批量删除',
+      icon: 'ri:delete-bin-6-line',
+      permission: 'MesWorkOrder:Delete',
+      divided: true
+    },
+    {
+      key: 'due-date',
+      label: '交期维护',
+      icon: 'ri:calendar-check-line',
+      permission: 'MesWorkOrder:MaintainDueDate'
     }
-  ])
-
+  ]
+  const visibleBatchCommands = computed(() =>
+    isCrossTenantReadOnly.value
+      ? []
+      : batchCommands.filter((command) => hasAuth(command.permission))
+  )
   const statusTag = (status: string) => {
     const meta = statusMeta[status] || { label: status, type: 'info' as const }
     const dictCode = isWorkOrder.value ? 'mesWorkOrderStatus' : 'mesOperationTaskStatus'
@@ -404,8 +524,19 @@
       fixed: 'left',
       showOverflowTooltip: true
     },
+    {
+      prop: 'workOrderTypeNameSnapshot',
+      label: '工单类型',
+      minWidth: 138,
+      formatter: (row) => (
+        <span class="manufacturing-page__order-type">
+          <span>{row.workOrderTypeNameSnapshot || '未分类'}</span>
+          <WorkOrderUrgencyLabel urgency={row.urgency} showText={false} />
+        </span>
+      )
+    },
     { prop: 'materialCodeSnapshot', label: '物料编码', minWidth: 140, showOverflowTooltip: true },
-    { prop: 'materialNameSnapshot', label: '产品名称', minWidth: 180, showOverflowTooltip: true },
+    { prop: 'materialNameSnapshot', label: '物料描述', minWidth: 180, showOverflowTooltip: true },
     { prop: 'specificationSnapshot', label: '规格型号', minWidth: 140, showOverflowTooltip: true },
     {
       prop: 'orderQuantity',
@@ -421,18 +552,31 @@
       label: '紧急程度',
       width: 96,
       align: 'center',
-      formatter: (row) =>
-        row.urgency === 'urgent3' ? (
-          <ElTag type="danger">{dictLabel('mesWorkOrderUrgency', row.urgency)}</ElTag>
-        ) : row.urgency === 'urgent2' ? (
-          <ElTag type="warning">{dictLabel('mesWorkOrderUrgency', row.urgency)}</ElTag>
-        ) : row.urgency === 'urgent1' ? (
-          <ElTag type="warning" effect="plain">
-            {dictLabel('mesWorkOrderUrgency', row.urgency)}
-          </ElTag>
-        ) : (
-          dictLabel('mesWorkOrderUrgency', row.urgency)
-        )
+      formatter: (row) => <WorkOrderUrgencyLabel urgency={row.urgency} />
+    },
+    {
+      prop: 'snapshots',
+      label: '生产资料',
+      width: 196,
+      align: 'center',
+      formatter: (row) => (
+        <BusinessTableRowActions>
+          <ArtButtonTable
+            permission="MesWorkOrder:View"
+            icon="ri:organization-chart"
+            label="BOM"
+            showLabel
+            onClick={() => openSnapshot(row, 'bom')}
+          />
+          <ArtButtonTable
+            permission="MesWorkOrder:View"
+            icon="ri:git-branch-line"
+            label="工艺路线"
+            showLabel
+            onClick={() => openSnapshot(row, 'route')}
+          />
+        </BusinessTableRowActions>
+      )
     },
     {
       prop: 'status',
@@ -567,6 +711,12 @@
         }
       ]
     return [
+      {
+        key: 'copy',
+        label: '复制',
+        icon: 'ri:file-copy-2-line',
+        auth: 'MesWorkOrder:Copy'
+      },
       { key: 'print', label: '打印', icon: 'ri:printer-line', auth: 'MesWorkOrder:Print' },
       {
         key: 'annotate',
@@ -681,21 +831,174 @@
       workCenters: referenceState.workCenters
     })
   }
-  function dictLabel(code: string, value: string): string {
-    return getDictMap.value[code]?.find((item) => item.value === value)?.label || value
+  function openSnapshot(row: MesWorkOrder, mode: WorkOrderSnapshotMode): void {
+    void snapshotDialogRef.value?.handleOpen({ row, mode })
   }
-  async function runBatch(rows: MesWorkOrder[], action: string, refresh = true) {
-    for (const row of rows) await transitionWorkOrder(row.id, action)
-    if (refresh) await tableRef.value?.refreshData()
+  function tableRowClassName({ row }: { row: Record<string, unknown> }): string {
+    if (!printRowIds.value.size || !isWorkOrder.value) return ''
+    const rowId = typeof row.id === 'string' ? row.id : ''
+    return printRowIds.value.has(rowId) ? 'is-print-selected' : 'is-print-excluded'
+  }
+  async function handleGetWorkOrders(): Promise<void> {
+    await tableRef.value?.getData()
+    ElMessage.success('已获取当前范围的最新生产工单')
+  }
+  function notifyBatchResult(result: MesBatchResult, actionLabel: string): void {
+    const successCount = result.successIds.length
+    const failureCount = result.failures.length
+    if (!failureCount) {
+      ElMessage.success(`${actionLabel}完成，共处理 ${successCount} 张工单`)
+      return
+    }
+    const firstFailure = result.failures[0]?.message || '部分工单不满足当前操作条件'
+    const message = `${actionLabel}完成：成功 ${successCount} 张，失败 ${failureCount} 张。${firstFailure}`
+    if (successCount) ElMessage.warning(message)
+    else ElMessage.error(message)
+  }
+  async function confirmBatchAction(message: string, title: string): Promise<boolean> {
+    try {
+      await confirmAction(message, title, { confirmButtonText: '继续处理' })
+      return true
+    } catch {
+      return false
+    }
+  }
+  async function printWorkOrders(rows: MesWorkOrder[]): Promise<void> {
+    const result = await batchTransitionWorkOrders(
+      rows.map((row) => row.id),
+      'print'
+    )
+    notifyBatchResult(result, '批量打印')
+    if (!result.successIds.length) return
+    printRowIds.value = new Set(result.successIds)
+    await nextTick()
+    const clearPrintSelection = () => {
+      printRowIds.value = new Set()
+    }
+    window.addEventListener('afterprint', clearPrintSelection, { once: true })
+    window.print()
+    clearPrintSelection()
+  }
+  async function handleCopySelected(
+    rows: MesWorkOrder[],
+    clearSelection: () => void
+  ): Promise<void> {
+    if (rows.length !== 1) return
+    batchBusy.value = true
+    try {
+      const result = await copyWorkOrders([rows[0]!.id])
+      notifyBatchResult(result, '复制')
+      if (result.successIds.length) {
+        clearSelection()
+        await tableRef.value?.refreshCreate()
+      }
+    } finally {
+      batchBusy.value = false
+    }
+  }
+  let dueDateClearSelection: (() => void) | undefined
+  async function handleBatchCommand(
+    command: string,
+    rows: MesWorkOrder[],
+    clearSelection: () => void
+  ): Promise<void> {
+    if (!rows.length) return
+    if (command === 'due-date') {
+      dueDateClearSelection = clearSelection
+      const sharedDate = rows.every((row) => row.plannedEndDate === rows[0]?.plannedEndDate)
+        ? rows[0]?.plannedEndDate
+        : undefined
+      await dueDateDialogRef.value?.handleOpen({
+        ids: rows.map((row) => row.id),
+        initialDate: sharedDate
+      })
+      return
+    }
+    const confirmationMap: Record<string, { message: string; title: string }> = {
+      reference: {
+        message: `将参照 ${rows.length} 张工单创建新的待确认工单，是否继续？`,
+        title: '批量参考'
+      },
+      confirm: {
+        message: `将确认 ${rows.length} 张工单，并为成功确认的工单生成工序任务，是否继续？`,
+        title: '批量确认'
+      },
+      close: {
+        message: `将结案 ${rows.length} 张工单及其未结案工序任务，是否继续？`,
+        title: '批量结案'
+      },
+      delete: {
+        message: `确定删除选中的 ${rows.length} 张工单吗？30 天内可恢复。`,
+        title: '批量删除'
+      }
+    }
+    const confirmation = confirmationMap[command]
+    if (confirmation && !(await confirmBatchAction(confirmation.message, confirmation.title)))
+      return
+
+    batchBusy.value = true
+    try {
+      if (command === 'print') {
+        await printWorkOrders(rows)
+      } else {
+        const result =
+          command === 'reference'
+            ? await copyWorkOrders(rows.map((row) => row.id))
+            : await batchTransitionWorkOrders(
+                rows.map((row) => row.id),
+                command
+              )
+        notifyBatchResult(result, confirmation?.title || '批量操作')
+      }
+      clearSelection()
+      if (command === 'reference') await tableRef.value?.refreshCreate()
+      else if (command === 'delete') await tableRef.value?.refreshRemove()
+      else await tableRef.value?.refreshData()
+    } finally {
+      batchBusy.value = false
+    }
+  }
+  async function handleDueDateSuccess(result: MesBatchResult): Promise<void> {
+    notifyBatchResult(result, '交期维护')
+    if (result.successIds.length) {
+      dueDateClearSelection?.()
+      await tableRef.value?.refreshUpdate()
+    }
+    dueDateClearSelection = undefined
+  }
+  async function handleTaskBatch(
+    rows: MesOperationTask[],
+    action: 'close' | 'delete',
+    clearSelection: () => void
+  ): Promise<void> {
+    const title = action === 'close' ? '批量结案' : '批量删除'
+    if (
+      !(await confirmBatchAction(`确定对选中的 ${rows.length} 条工序任务执行${title}吗？`, title))
+    )
+      return
+    batchBusy.value = true
+    try {
+      for (const row of rows) await transitionOperationTask(row.id, action)
+      clearSelection()
+      if (action === 'delete') await tableRef.value?.refreshRemove()
+      else await tableRef.value?.refreshData()
+    } finally {
+      batchBusy.value = false
+    }
   }
   async function handleWorkOrderAction(row: MesWorkOrder, action: string) {
     if (action === 'annotate') {
       await annotationDialogRef.value?.handleOpen({ row })
       return
     }
+    if (action === 'copy') {
+      const result = await copyWorkOrders([row.id])
+      notifyBatchResult(result, '复制')
+      if (result.successIds.length) await tableRef.value?.refreshCreate()
+      return
+    }
     if (action === 'print') {
-      await transitionWorkOrder(row.id, 'print')
-      window.print()
+      await printWorkOrders([row])
       await tableRef.value?.refreshData()
       return
     }
@@ -712,14 +1015,18 @@
   async function refreshAfterSave() {
     await tableRef.value?.refreshData()
   }
+  let contextRequestId = 0
   async function loadContext() {
+    const request = ++contextRequestId
+    Object.assign(overview, { total: 0, attention: 0, ready: 0 })
     Object.assign(table.search, {
       keyword: '',
-      status: '',
+      status: [],
       plannedDates: undefined,
       includeDeleted: false,
       workCenterId: ''
     })
+    await nextTick()
     await tenantScopeStore.loadTenantOptions()
     await Promise.all(
       [
@@ -730,9 +1037,13 @@
         'mdmProcessRouteSequenceType'
       ].map((code) => userStore.ensureDictLoaded(code))
     )
+    if (request !== contextRequestId) return
     const refs = await fetchMesReferences(effectiveTenantId.value || undefined)
+    if (request !== contextRequestId) return
     referenceState.employees = refs.employees
     referenceState.workCenters = refs.workCenters
+    await nextTick()
+    if (request !== contextRequestId) return
     await tableRef.value?.getData()
   }
   watch([() => route.path, effectiveTenantId], () => void loadContext(), { immediate: true })
@@ -745,12 +1056,57 @@
     gap: 14px;
     min-width: 0;
     min-height: 0;
+
+    &__selection-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    &__selection-summary,
+    &__batch-item,
+    &__order-type {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    &__selection-summary {
+      color: var(--art-gray-700);
+
+      strong {
+        color: var(--theme-color);
+      }
+    }
+
+    &__selection-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--el-border-color);
+    }
+
+    &__order-type {
+      max-width: 100%;
+
+      > span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
   }
 
   @media print {
     .manufacturing-page :deep(.art-search-bar),
     .manufacturing-page :deep(.el-pagination),
     .manufacturing-page :deep(.el-table__fixed-right) {
+      display: none !important;
+    }
+
+    .manufacturing-page :deep(.el-table__body tr.is-print-excluded) {
       display: none !important;
     }
   }
