@@ -25,10 +25,10 @@ export function conflictTaskIds(tasks: MesOperationTask[]): Set<string> {
   const ids = new Set<string>()
   for (let index = 0; index < tasks.length; index += 1) {
     const left = tasks[index]
-    if (!left || left.status === 'closed') continue
+    if (!left || left.schedulingStatus === 'closed') continue
     for (let compareIndex = index + 1; compareIndex < tasks.length; compareIndex += 1) {
       const right = tasks[compareIndex]
-      if (!right || right.status === 'closed') continue
+      if (!right || right.schedulingStatus === 'closed') continue
       if (tasksOverlap(left, right)) {
         ids.add(left.id)
         ids.add(right.id)
@@ -39,10 +39,10 @@ export function conflictTaskIds(tasks: MesOperationTask[]): Set<string> {
 }
 
 export function scheduleRisk(task: MesOperationTask, conflicts: Set<string>): ScheduleRisk {
-  if (!task.workCenterId || task.status === 'unscheduled') return 'unassigned'
+  if (!task.workCenterId || task.schedulingStatus === 'pending') return 'unassigned'
   if (conflicts.has(task.id)) return 'conflict'
   const endDate = taskEndDate(task)
-  if (endDate && dayjs(endDate).isBefore(dayjs(), 'day') && task.status !== 'closed')
+  if (endDate && dayjs(endDate).isBefore(dayjs(), 'day') && task.schedulingStatus !== 'closed')
     return 'overdue'
   return 'healthy'
 }

@@ -408,7 +408,10 @@
   }
 
   function openTask(row: MesOperationTask): void {
-    if (['unscheduled', 'scheduled'].includes(row.status) && hasAuth('MesOperationTask:Schedule')) {
+    if (
+      ['pending', 'scheduled'].includes(row.schedulingStatus) &&
+      hasAuth('MesOperationTask:Schedule')
+    ) {
       void scheduleDialogRef.value?.handleOpen({ row, workCenters: state.workCenters })
       return
     }

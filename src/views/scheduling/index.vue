@@ -214,9 +214,9 @@
               <template #operation="{ row }">
                 <ArtButtonTable
                   type="edit"
-                  :label="row.status === 'scheduled' ? '调整排程' : '安排排程'"
+                  :label="row.schedulingStatus === 'scheduled' ? '调整排程' : '安排排程'"
                   permission="MesOperationTask:Schedule"
-                  :disabled="!['unscheduled', 'scheduled'].includes(row.status)"
+                  :disabled="!['pending', 'scheduled'].includes(row.schedulingStatus)"
                   @click="openSchedule(row)"
                 />
               </template>
@@ -405,7 +405,7 @@
     },
     {
       label: '已排工序',
-      value: state.tasks.filter((task) => task.status === 'scheduled').length,
+      value: state.tasks.filter((task) => task.schedulingStatus === 'scheduled').length,
       description: '可进入现场执行',
       icon: 'ri:checkbox-circle-line',
       tone: 'success'
@@ -422,7 +422,7 @@
     const tasks = tasksForOrder(orderId)
     if (!tasks.length) return 0
     const scheduled = tasks.filter(
-      (task) => task.workCenterId && task.status !== 'unscheduled'
+      (task) => task.workCenterId && task.schedulingStatus !== 'pending'
     ).length
     return Math.round((scheduled / tasks.length) * 100)
   }

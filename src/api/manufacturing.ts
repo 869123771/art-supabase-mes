@@ -176,21 +176,28 @@ export async function fetchOperationTasks(
   let query = supabase
     .from('mes_operation_task')
     .select(
-      '*,workOrder:mes_work_order!mes_operation_task_order_fk(work_order_no,material_code_snapshot,material_name_snapshot,planned_start_date,planned_end_date,urgency)',
+      '*,workOrder:mes_work_order!mes_operation_task_order_fk(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name)',
       { count: 'exact' }
     )
     .order('update_time', { ascending: false })
     .range((params.current - 1) * params.size, params.current * params.size - 1)
   if (params.tenantId) query = query.eq('tenant_id', params.tenantId)
   if (!params.includeDeleted) query = query.is('deleted_at', null)
-  if (params.status) query = query.eq('status', params.status)
+  const schedulingStatuses = (
+    Array.isArray(params.schedulingStatus) ? params.schedulingStatus : [params.schedulingStatus]
+  ).filter((status): status is string => Boolean(status))
+  const operationStatuses = (
+    Array.isArray(params.operationStatus) ? params.operationStatus : [params.operationStatus]
+  ).filter((status): status is string => Boolean(status))
+  if (schedulingStatuses.length) query = query.in('scheduling_status', schedulingStatuses)
+  if (operationStatuses.length) query = query.in('operation_status', operationStatuses)
   if (params.workCenterId) query = query.eq('work_center_id', params.workCenterId)
   if (params.plannedDates?.[0]) query = query.gte('planned_end_date', params.plannedDates[0])
   if (params.plannedDates?.[1]) query = query.lte('planned_start_date', params.plannedDates[1])
   if (params.keyword?.trim()) {
     query = query.or(
       buildOrIlikeFilter(
-        ['operation_code', 'operation_name', 'process_content'],
+        ['task_no', 'operation_code', 'operation_name', 'process_content', 'barcode_value'],
         params.keyword.trim()
       )
     )
@@ -231,6 +238,41 @@ export async function transitionOperationTask(id: string, action: string, workCe
         p_work_center_id: workCenterId || null
       }),
     { ...writeOptions, requireAffected: false, message: '工序任务状态已更新' }
+  )
+}
+
+export async function batchTransitionOperationTasks(ids: string[], action: 'close' | 'delete') {
+  const { data } = await responseHandle<MesBatchResult>(
+    () => supabase.rpc('mes_batch_transition_operation_tasks', { p_ids: ids, p_action: action }),
+    { ...writeOptions, requireAffected: false, showMessage: false, message: '' }
+  )
+  return data ?? { successIds: [], failures: [] }
+}
+
+export async function annotateOperationTask(
+  id: string,
+  urgency: MesWorkOrder['urgency'],
+  annotation: string | null
+) {
+  return responseHandle(
+    () =>
+      supabase.rpc('mes_annotate_operation_task', {
+        p_id: id,
+        p_urgency: urgency,
+        p_annotation: annotation
+      }),
+    { ...writeOptions, requireAffected: false, message: '工序批注已更新' }
+  )
+}
+
+export async function updateOperationTaskDueDate(id: string, requiredCompletionDate: string) {
+  return responseHandle(
+    () =>
+      supabase.rpc('mes_update_operation_task_due_date', {
+        p_id: id,
+        p_required_completion_date: requiredCompletionDate
+      }),
+    { ...writeOptions, requireAffected: false, message: '工序要求完工日期已更新' }
   )
 }
 

@@ -1,6 +1,8 @@
 export type WorkOrderStatus = 'pending' | 'abnormal' | 'confirmed' | 'closed'
 export type WorkOrderUrgency = 'normal' | 'urgent1' | 'urgent2' | 'urgent3'
 export type OperationTaskStatus = 'unscheduled' | 'scheduled' | 'processing' | 'closed'
+export type OperationSchedulingStatus = 'no_schedule' | 'pending' | 'scheduled' | 'closed'
+export type OperationExecutionStatus = 'planned' | 'released' | 'started' | 'completed' | 'closed'
 
 export interface MesReferenceOption {
   id: string
@@ -158,33 +160,73 @@ export type MesWorkOrderInput = Pick<
 export interface MesOperationTask {
   id: string
   tenantId: string
+  taskNo: string
   workOrderId: string
+  routeStepId: string | null
   sequenceNo: number
   sequenceType: string
   operationCode: string
   operationName: string
+  controlCodeId: string | null
+  controlCodeSnapshot: string
+  controlCodeNameSnapshot: string
   plannedQuantity: number
+  operationUnit: string
+  scheduledQuantity: number
+  pendingScheduleQuantity: number
+  completedQuantity: number
+  cumulativeCompletedQuantity: number
+  qualifiedQuantity: number
+  cumulativeQualifiedQuantity: number
+  unqualifiedQuantity: number
+  cumulativeUnqualifiedQuantity: number
+  scrapQuantity: number
+  cumulativeScrapQuantity: number
+  pendingReworkQuantity: number
+  pendingInspectionQuantity: number
   plannedStartDate: string | null
   plannedEndDate: string | null
+  requiredCompletionDate: string | null
   departmentId: string | null
   workCenterId: string | null
   status: OperationTaskStatus
+  schedulingStatus: OperationSchedulingStatus
+  operationStatus: OperationExecutionStatus
+  urgency: WorkOrderUrgency
   reportedGoodQuantity: number
   reportedBadQuantity: number
   processContent: string | null
   remark: string
+  annotation: string
+  barcodeValue: string
+  qrCodeValue: string
+  createTime: string
   closedAt: string | null
   deletedAt: string | null
   updateTime: string
   workOrder?: Pick<
     MesWorkOrder,
     | 'workOrderNo'
+    | 'workOrderTypeNameSnapshot'
+    | 'projectNameSnapshot'
+    | 'constructionNo'
     | 'materialCodeSnapshot'
     | 'materialNameSnapshot'
+    | 'specificationSnapshot'
+    | 'unitSnapshot'
     | 'plannedStartDate'
     | 'plannedEndDate'
     | 'urgency'
+    | 'source'
+    | 'remark'
+    | 'specialRequirement'
+    | 'trackingNo'
+    | 'followNo'
+    | 'salesOrderNo'
+    | 'customerCode'
   >
+  department?: Pick<MesReferenceOption, 'code' | 'name'>
+  workCenter?: Pick<MesReferenceOption, 'code' | 'name'>
 }
 
 export interface MesOperationTaskScheduleInput {
@@ -200,6 +242,8 @@ export interface MesListQuery {
   tenantId?: string | null
   keyword?: string
   status?: string | string[]
+  schedulingStatus?: string | string[]
+  operationStatus?: string | string[]
   includeDeleted?: boolean
   plannedDates?: [string, string]
   workCenterId?: string

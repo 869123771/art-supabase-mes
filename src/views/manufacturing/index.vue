@@ -109,6 +109,8 @@
       <WorkOrderDueDateDialog ref="dueDateDialogRef" @success="handleDueDateSuccess" />
       <ScheduleDialog ref="scheduleDialogRef" @success="refreshAfterSave" />
       <TaskDetailDialog ref="taskDetailDialogRef" />
+      <TaskAnnotationDialog ref="taskAnnotationDialogRef" @success="refreshAfterSave" />
+      <TaskDueDateDialog ref="taskDueDateDialogRef" @success="refreshAfterSave" />
     </div>
   </ArtPermissionGuard>
 </template>
@@ -138,6 +140,7 @@
   } from '@/components/core/tables/art-table-query/index.vue'
   import type { ColumnOption } from '@/types'
   import {
+    batchTransitionOperationTasks,
     batchTransitionWorkOrders,
     copyWorkOrders,
     fetchMesReferences,
@@ -166,6 +169,12 @@
   } from './modules/work-order-snapshot-dialog.vue'
   import WorkOrderUrgencyLabel from './modules/work-order-urgency-label.vue'
   import TaskDetailDialog, { type TaskDetailDialogOpenData } from './modules/task-detail-dialog.vue'
+  import TaskAnnotationDialog, {
+    type TaskAnnotationDialogOpenData
+  } from './modules/task-annotation-dialog.vue'
+  import TaskDueDateDialog, {
+    type TaskDueDateDialogOpenData
+  } from './modules/task-due-date-dialog.vue'
 
   defineOptions({ name: 'MesManufacturing' })
   const declaredPermissions = [
@@ -189,7 +198,9 @@
     'MesOperationTask:Schedule',
     'MesOperationTask:Close',
     'MesOperationTask:Reopen',
-    'MesOperationTask:Delete'
+    'MesOperationTask:Delete',
+    'MesOperationTask:Annotate',
+    'MesOperationTask:MaintainDueDate'
   ] as const
   void declaredPermissions
 
@@ -201,7 +212,7 @@
   const description = computed(() =>
     isWorkOrder.value
       ? '统一创建、确认和跟踪生产工单，保存时集成 BOM 与工艺路线执行基线。'
-      : '承接已确认工单的工序明细，完成工作中心排程、关闭与异常回退。'
+      : '承接已确认生产工单的工序明细，统一管理排产、执行、质量回填与结案。'
   )
   const emptyDescription = computed(() =>
     isWorkOrder.value
@@ -225,6 +236,12 @@
   const taskDetailDialogRef = ref<{
     handleOpen: (data: TaskDetailDialogOpenData) => Promise<void>
   }>()
+  const taskAnnotationDialogRef = ref<{
+    handleOpen: (data: TaskAnnotationDialogOpenData) => Promise<void>
+  }>()
+  const taskDueDateDialogRef = ref<{
+    handleOpen: (data: TaskDueDateDialogOpenData) => Promise<void>
+  }>()
   const tenantScopeStore = useTenantScopeStore()
   const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
   const { hasAuth } = useAuth()
@@ -245,7 +262,7 @@
           { label: '30 天可恢复', type: 'info' }
         ]
       : [
-          { label: '工作中心排程', type: 'primary' },
+          { label: '工作中心排产', type: 'primary' },
           { label: '工序级追踪', type: 'success' },
           { label: '状态受控', type: 'info' }
         ]
@@ -258,14 +275,14 @@
       icon: icon.value
     },
     {
-      label: isWorkOrder.value ? '待处理' : '待排程',
+      label: isWorkOrder.value ? '待处理' : '待排产',
       value: overview.attention,
       description: isWorkOrder.value ? '待确认与异常工单' : '尚未分配工作中心',
       icon: 'ri:alarm-warning-line',
       tone: overview.attention ? 'warning' : 'success'
     },
     {
-      label: isWorkOrder.value ? '已确认' : '已排程',
+      label: isWorkOrder.value ? '已确认' : '已排产',
       value: overview.ready,
       description: '可进入后续生产执行',
       icon: 'ri:checkbox-circle-line',
@@ -278,7 +295,7 @@
           ...(getDictMap.value.mesWorkOrderStatus ?? []),
           { label: '回收站（30 天内）', value: '__deleted' }
         ]
-      : (getDictMap.value.mesOperationTaskStatus ?? [])
+      : (getDictMap.value.mesOperationTaskScheduleStatus ?? [])
   )
   const statusMeta: Record<
     string,
@@ -290,12 +307,19 @@
     closed: { label: '已结案', type: 'info' },
     unscheduled: { label: '未排程', type: 'warning' },
     scheduled: { label: '已排程', type: 'primary' },
-    processing: { label: '加工中', type: 'success' }
+    processing: { label: '加工中', type: 'success' },
+    no_schedule: { label: '无需排产', type: 'info' },
+    planned: { label: '计划', type: 'info' },
+    released: { label: '下达', type: 'primary' },
+    started: { label: '开工', type: 'warning' },
+    completed: { label: '完工', type: 'success' }
   }
   const table = reactive({
     search: {
       keyword: '',
       status: [] as string[],
+      schedulingStatus: [] as string[],
+      operationStatus: [] as string[],
       plannedDates: undefined as [string, string] | undefined,
       includeDeleted: false,
       workCenterId: ''
@@ -313,8 +337,8 @@
         }
       },
       {
-        key: 'status',
-        label: '业务状态',
+        key: isWorkOrder.value ? 'status' : 'schedulingStatus',
+        label: isWorkOrder.value ? '业务状态' : '排产状态',
         type: 'select',
         props: {
           clearable: true,
@@ -337,7 +361,20 @@
           endPlaceholder: '结束日期'
         }
       })
-    else
+    else {
+      items.push({
+        key: 'operationStatus',
+        label: '工序状态',
+        type: 'select',
+        props: {
+          clearable: true,
+          multiple: true,
+          collapseTags: true,
+          collapseTagsTooltip: true,
+          options: getDictMap.value.mesOperationStatus ?? [],
+          placeholder: '全部状态'
+        }
+      })
       items.push({
         key: 'workCenterId',
         label: '工作中心',
@@ -351,8 +388,60 @@
           }))
         }
       })
+    }
     return items
   })
+
+  const taskExportColumns = [
+    { key: 'taskNo', title: '任务单号' },
+    { key: 'workOrder.workOrderNo', title: '生产工单' },
+    { key: 'workOrder.workOrderTypeNameSnapshot', title: '工单类型' },
+    { key: 'workOrder.projectNameSnapshot', title: '项目名称' },
+    { key: 'workOrder.constructionNo', title: '施工号' },
+    { key: 'workOrder.materialCodeSnapshot', title: '产品编码' },
+    { key: 'workOrder.materialNameSnapshot', title: '品名' },
+    { key: 'workOrder.specificationSnapshot', title: '规格型号' },
+    { key: 'sequenceNo', title: '工序序列' },
+    { key: 'sequenceType', title: '序列类型' },
+    { key: 'operationCode', title: '工序号' },
+    { key: 'operationName', title: '工序名称' },
+    { key: 'controlCodeSnapshot', title: '工序控制码' },
+    { key: 'operationStatus', title: '工序状态' },
+    { key: 'schedulingStatus', title: '排产状态' },
+    { key: 'plannedQuantity', title: '工序数量' },
+    { key: 'operationUnit', title: '工序单位' },
+    { key: 'pendingScheduleQuantity', title: '待排产数量' },
+    { key: 'scheduledQuantity', title: '已排产数量' },
+    { key: 'completedQuantity', title: '完工数量' },
+    { key: 'cumulativeCompletedQuantity', title: '累计完工数量' },
+    { key: 'qualifiedQuantity', title: '合格数量' },
+    { key: 'cumulativeQualifiedQuantity', title: '累计合格数量' },
+    { key: 'unqualifiedQuantity', title: '不合格数量' },
+    { key: 'cumulativeUnqualifiedQuantity', title: '累计不合格数量' },
+    { key: 'scrapQuantity', title: '工废数量' },
+    { key: 'cumulativeScrapQuantity', title: '累计工废数量' },
+    { key: 'pendingReworkQuantity', title: '待返工数量' },
+    { key: 'pendingInspectionQuantity', title: '待检数量' },
+    { key: 'createTime', title: '工序创建日期' },
+    { key: 'workOrder.plannedStartDate', title: '工单开工日期' },
+    { key: 'workOrder.plannedEndDate', title: '工单完工日期' },
+    { key: 'requiredCompletionDate', title: '工序要求完工日期' },
+    { key: 'workOrder.source', title: '工单来源' },
+    { key: 'workOrder.remark', title: '工单备注' },
+    { key: 'workOrder.specialRequirement', title: '客制特殊需求' },
+    { key: 'workOrder.trackingNo', title: '计划跟踪号' },
+    { key: 'workOrder.followNo', title: '跟单号' },
+    { key: 'department.name', title: '生产车间' },
+    { key: 'workCenter.name', title: '工作中心' },
+    { key: 'workOrder.salesOrderNo', title: '销售单号' },
+    { key: 'workOrder.customerCode', title: '客户代码' },
+    { key: 'processContent', title: '工艺内容' },
+    { key: 'remark', title: '工序备注' },
+    { key: 'barcodeValue', title: '工序条码' },
+    { key: 'qrCodeValue', title: '工序二维码' },
+    { key: 'annotation', title: '工序批注' },
+    { key: 'urgency', title: '加急状态' }
+  ]
 
   const headerActions = computed<ArtTableQueryHeaderAction[]>(() =>
     isWorkOrder.value
@@ -427,28 +516,7 @@
             type: 'export',
             label: '导出',
             permission: 'MesOperationTask:Export',
-            exportColumns: [
-              { key: 'operationCode', title: '工序编码' },
-              { key: 'operationName', title: '工序名称' },
-              { key: 'plannedQuantity', title: '计划数量' },
-              { key: 'reportedGoodQuantity', title: '良品数量' },
-              { key: 'status', title: '状态' }
-            ]
-          },
-          {
-            key: 'close',
-            label: '批量结案',
-            icon: 'ri:archive-line',
-            permission: 'MesOperationTask:Close',
-            selectionRequired: true,
-            onClick: async ({ selectedRows, api }) => {
-              await Promise.all(
-                (selectedRows as MesOperationTask[]).map((row) =>
-                  transitionOperationTask(row.id, 'close')
-                )
-              )
-              await api.refreshData()
-            }
+            exportColumns: taskExportColumns
           }
         ]
   )
@@ -503,9 +571,10 @@
       ? []
       : batchCommands.filter((command) => hasAuth(command.permission))
   )
-  const statusTag = (status: string) => {
+  const statusTag = (status: string, explicitDictCode?: string) => {
     const meta = statusMeta[status] || { label: status, type: 'info' as const }
-    const dictCode = isWorkOrder.value ? 'mesWorkOrderStatus' : 'mesOperationTaskStatus'
+    const dictCode =
+      explicitDictCode || (isWorkOrder.value ? 'mesWorkOrderStatus' : 'mesOperationTaskStatus')
     const label =
       getDictMap.value[dictCode]?.find((item) => item.value === status)?.label || meta.label
     return (
@@ -625,51 +694,229 @@
       )
     }
   ]
+  const taskQuantity = (row: MesOperationTask, key: keyof MesOperationTask) =>
+    `${Number(row[key] ?? 0)}${row.operationUnit ? ` ${row.operationUnit}` : ''}`
   const taskColumns = (): ColumnOption<MesOperationTask>[] => [
     { type: 'selection', width: 48 },
-    { type: 'globalIndex', label: '序号', width: 70 },
+    { type: 'globalIndex', label: '序号', width: 66 },
+    {
+      prop: 'taskNo',
+      label: '任务单号',
+      minWidth: 164,
+      fixed: 'left',
+      showOverflowTooltip: true
+    },
     {
       prop: 'workOrderNo',
-      label: '工单编号',
-      minWidth: 150,
-      fixed: 'left',
+      label: '生产工单',
+      minWidth: 156,
+      showOverflowTooltip: true,
       formatter: (row) => row.workOrder?.workOrderNo || '—'
     },
-    { prop: 'operationCode', label: '工序编码', minWidth: 130, showOverflowTooltip: true },
-    { prop: 'operationName', label: '工序名称', minWidth: 160, showOverflowTooltip: true },
+    {
+      prop: 'workOrderType',
+      label: '工单类型',
+      minWidth: 132,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.workOrderTypeNameSnapshot || '—'
+    },
+    {
+      prop: 'projectName',
+      label: '项目名称',
+      minWidth: 150,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.projectNameSnapshot || '—'
+    },
+    {
+      prop: 'constructionNo',
+      label: '施工号',
+      minWidth: 120,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.constructionNo || '—'
+    },
+    {
+      prop: 'materialCode',
+      label: '产品编码',
+      minWidth: 140,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.materialCodeSnapshot || '—'
+    },
     {
       prop: 'materialName',
-      label: '产品',
-      minWidth: 180,
+      label: '品名 / 规格型号',
+      minWidth: 210,
       showOverflowTooltip: true,
       formatter: (row) =>
-        row.workOrder
-          ? `${row.workOrder.materialCodeSnapshot} · ${row.workOrder.materialNameSnapshot}`
-          : '—'
+        [row.workOrder?.materialNameSnapshot, row.workOrder?.specificationSnapshot]
+          .filter(Boolean)
+          .join(' · ') || '—'
     },
-    { prop: 'plannedQuantity', label: '计划数量', width: 110, align: 'right' },
-    { prop: 'reportedGoodQuantity', label: '良品数量', width: 110, align: 'right' },
-    { prop: 'reportedBadQuantity', label: '不良数量', width: 110, align: 'right' },
+    { prop: 'sequenceNo', label: '工序序列', width: 96, align: 'right' },
     {
-      prop: 'workCenterId',
-      label: '工作中心',
-      minWidth: 150,
+      prop: 'sequenceType',
+      label: '序列类型',
+      width: 108,
+      formatter: (row) => statusTag(row.sequenceType, 'mdmProcessRouteSequenceType')
+    },
+    { prop: 'operationCode', label: '工序号', minWidth: 104, showOverflowTooltip: true },
+    { prop: 'operationName', label: '工序名称', minWidth: 150, showOverflowTooltip: true },
+    {
+      prop: 'controlCodeSnapshot',
+      label: '工序控制码',
+      minWidth: 130,
+      showOverflowTooltip: true,
       formatter: (row) =>
-        referenceState.workCenters.find((item) => item.id === row.workCenterId)?.name || '未排程'
+        [row.controlCodeSnapshot, row.controlCodeNameSnapshot].filter(Boolean).join(' · ') || '—'
     },
     {
-      prop: 'status',
-      label: '状态',
-      width: 100,
+      prop: 'operationStatus',
+      label: '工序状态',
+      width: 104,
       align: 'center',
-      formatter: (row) => statusTag(row.status)
+      formatter: (row) => statusTag(row.operationStatus, 'mesOperationStatus')
     },
     {
-      prop: 'plannedEndDate',
-      label: '计划结束',
-      width: 116,
-      formatter: (row) => row.plannedEndDate || '—'
+      prop: 'schedulingStatus',
+      label: '排产状态',
+      width: 104,
+      align: 'center',
+      formatter: (row) => statusTag(row.schedulingStatus, 'mesOperationTaskScheduleStatus')
     },
+    {
+      prop: 'urgency',
+      label: '加急状态',
+      width: 96,
+      align: 'center',
+      formatter: (row) => <WorkOrderUrgencyLabel urgency={row.urgency} />
+    },
+    {
+      prop: 'plannedQuantity',
+      label: '工序数量',
+      minWidth: 116,
+      align: 'right',
+      formatter: (row) => taskQuantity(row, 'plannedQuantity')
+    },
+    { prop: 'operationUnit', label: '工序单位', width: 92 },
+    {
+      prop: 'pendingScheduleQuantity',
+      label: '待排产数量',
+      minWidth: 118,
+      align: 'right',
+      formatter: (row) => taskQuantity(row, 'pendingScheduleQuantity')
+    },
+    {
+      prop: 'scheduledQuantity',
+      label: '已排产数量',
+      minWidth: 118,
+      align: 'right',
+      formatter: (row) => taskQuantity(row, 'scheduledQuantity')
+    },
+    ...(
+      [
+        ['completedQuantity', '完工数量'],
+        ['cumulativeCompletedQuantity', '累计完工数量'],
+        ['qualifiedQuantity', '合格数量'],
+        ['cumulativeQualifiedQuantity', '累计合格数量'],
+        ['unqualifiedQuantity', '不合格数量'],
+        ['cumulativeUnqualifiedQuantity', '累计不合格数量'],
+        ['scrapQuantity', '工废数量'],
+        ['cumulativeScrapQuantity', '累计工废数量'],
+        ['pendingReworkQuantity', '待返工数量'],
+        ['pendingInspectionQuantity', '待检数量']
+      ] as const
+    ).map(([prop, label]) => ({
+      prop,
+      label,
+      minWidth: label.startsWith('累计') ? 128 : 112,
+      align: 'right' as const,
+      formatter: (row: MesOperationTask) => taskQuantity(row, prop)
+    })),
+    {
+      prop: 'createTime',
+      label: '工序创建日期',
+      width: 164,
+      formatter: (row) => dayjs(row.createTime).format('YYYY-MM-DD HH:mm')
+    },
+    {
+      prop: 'workOrderStartDate',
+      label: '工单开工日期',
+      width: 120,
+      formatter: (row) => row.workOrder?.plannedStartDate || '—'
+    },
+    {
+      prop: 'workOrderEndDate',
+      label: '工单完工日期',
+      width: 120,
+      formatter: (row) => row.workOrder?.plannedEndDate || '—'
+    },
+    { prop: 'requiredCompletionDate', label: '工序要求完工日期', width: 140 },
+    {
+      prop: 'source',
+      label: '工单来源',
+      width: 108,
+      formatter: (row) => statusTag(row.workOrder?.source || '', 'mesWorkOrderSource')
+    },
+    {
+      prop: 'workOrderRemark',
+      label: '工单备注',
+      minWidth: 160,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.remark || '—'
+    },
+    {
+      prop: 'specialRequirement',
+      label: '客制特殊需求',
+      minWidth: 180,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.specialRequirement || '—'
+    },
+    {
+      prop: 'trackingNo',
+      label: '计划跟踪号',
+      minWidth: 128,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.trackingNo || '—'
+    },
+    {
+      prop: 'followNo',
+      label: '跟单号',
+      minWidth: 116,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.followNo || '—'
+    },
+    {
+      prop: 'department',
+      label: '生产车间',
+      minWidth: 140,
+      showOverflowTooltip: true,
+      formatter: (row) => row.department?.name || '—'
+    },
+    {
+      prop: 'workCenter',
+      label: '工作中心',
+      minWidth: 140,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workCenter?.name || '待排产'
+    },
+    {
+      prop: 'salesOrderNo',
+      label: '销售单号',
+      minWidth: 128,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.salesOrderNo || '—'
+    },
+    {
+      prop: 'customerCode',
+      label: '客户代码',
+      minWidth: 120,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.customerCode || '—'
+    },
+    { prop: 'processContent', label: '工艺内容', minWidth: 180, showOverflowTooltip: true },
+    { prop: 'remark', label: '工序备注', minWidth: 160, showOverflowTooltip: true },
+    { prop: 'annotation', label: '工序批注', minWidth: 180, showOverflowTooltip: true },
+    { prop: 'barcodeValue', label: '工序条码', minWidth: 164, showOverflowTooltip: true },
+    { prop: 'qrCodeValue', label: '工序二维码', minWidth: 164, showOverflowTooltip: true },
     {
       prop: 'operation',
       label: '操作',
@@ -682,10 +929,10 @@
             permission="MesOperationTask:View"
             onClick={() => openTaskDetail(row)}
           />
-          {!row.deletedAt && ['unscheduled', 'scheduled'].includes(row.status) && (
+          {!row.deletedAt && ['pending', 'scheduled'].includes(row.schedulingStatus) && (
             <ArtButtonTable
               type="edit"
-              label="排程"
+              label="排产"
               permission="MesOperationTask:Schedule"
               onClick={() => openSchedule(row)}
             />
@@ -759,17 +1006,33 @@
   function taskMore(row: MesOperationTask) {
     if (row.deletedAt) return []
     return [
-      ...(['unscheduled', 'scheduled'].includes(row.status)
+      {
+        key: 'annotate',
+        label: '工序批注',
+        icon: 'ri:sticky-note-add-line',
+        auth: 'MesOperationTask:Annotate'
+      },
+      ...(row.operationStatus !== 'closed'
+        ? [
+            {
+              key: 'due-date',
+              label: '要求完工日期',
+              icon: 'ri:calendar-check-line',
+              auth: 'MesOperationTask:MaintainDueDate'
+            }
+          ]
+        : []),
+      ...(!['started', 'closed'].includes(row.operationStatus)
         ? [
             {
               key: 'close',
-              label: '关闭',
-              icon: 'ri:close-circle-line',
+              label: '结案',
+              icon: 'ri:archive-line',
               auth: 'MesOperationTask:Close'
             }
           ]
         : []),
-      ...(row.status === 'closed'
+      ...(row.operationStatus === 'closed'
         ? [
             {
               key: 'reopen',
@@ -799,12 +1062,12 @@
     overview.attention = result.data.filter((row) =>
       isWorkOrder.value
         ? ['pending', 'abnormal'].includes((row as MesWorkOrder).status)
-        : (row as MesOperationTask).status === 'unscheduled'
+        : (row as MesOperationTask).schedulingStatus === 'pending'
     ).length
     overview.ready = result.data.filter((row) =>
       isWorkOrder.value
         ? (row as MesWorkOrder).status === 'confirmed'
-        : (row as MesOperationTask).status === 'scheduled'
+        : ['scheduled', 'no_schedule'].includes((row as MesOperationTask).schedulingStatus)
     ).length
     return { records: result.data, total: result.total }
   }
@@ -831,6 +1094,12 @@
       workCenters: referenceState.workCenters
     })
   }
+  function openTaskAnnotation(row: MesOperationTask) {
+    void taskAnnotationDialogRef.value?.handleOpen({ row })
+  }
+  function openTaskDueDate(row: MesOperationTask) {
+    void taskDueDateDialogRef.value?.handleOpen({ row })
+  }
   function openSnapshot(row: MesWorkOrder, mode: WorkOrderSnapshotMode): void {
     void snapshotDialogRef.value?.handleOpen({ row, mode })
   }
@@ -843,11 +1112,11 @@
     await tableRef.value?.getData()
     ElMessage.success('已获取当前范围的最新生产工单')
   }
-  function notifyBatchResult(result: MesBatchResult, actionLabel: string): void {
+  function notifyBatchResult(result: MesBatchResult, actionLabel: string, unit = '张工单'): void {
     const successCount = result.successIds.length
     const failureCount = result.failures.length
     if (!failureCount) {
-      ElMessage.success(`${actionLabel}完成，共处理 ${successCount} 张工单`)
+      ElMessage.success(`${actionLabel}完成，共处理 ${successCount} ${unit}`)
       return
     }
     const firstFailure = result.failures[0]?.message || '部分工单不满足当前操作条件'
@@ -978,7 +1247,11 @@
       return
     batchBusy.value = true
     try {
-      for (const row of rows) await transitionOperationTask(row.id, action)
+      const result = await batchTransitionOperationTasks(
+        rows.map((row) => row.id),
+        action
+      )
+      notifyBatchResult(result, title, '条任务')
       clearSelection()
       if (action === 'delete') await tableRef.value?.refreshRemove()
       else await tableRef.value?.refreshData()
@@ -1008,7 +1281,19 @@
     await tableRef.value?.refreshData()
   }
   async function handleTaskAction(row: MesOperationTask, action: string) {
+    if (action === 'annotate') {
+      openTaskAnnotation(row)
+      return
+    }
+    if (action === 'due-date') {
+      openTaskDueDate(row)
+      return
+    }
     if (action === 'delete') await confirmDelete(`确定删除工序任务“${row.operationName}”吗？`)
+    if (action === 'close')
+      await confirmAction(`确定将工序任务“${row.operationName}”结案吗？`, '工序任务结案', {
+        confirmButtonText: '确认结案'
+      })
     await transitionOperationTask(row.id, action)
     await tableRef.value?.refreshData()
   }
@@ -1022,6 +1307,8 @@
     Object.assign(table.search, {
       keyword: '',
       status: [],
+      schedulingStatus: [],
+      operationStatus: [],
       plannedDates: undefined,
       includeDeleted: false,
       workCenterId: ''
@@ -1034,6 +1321,8 @@
         'mesWorkOrderUrgency',
         'mesWorkOrderStatus',
         'mesOperationTaskStatus',
+        'mesOperationTaskScheduleStatus',
+        'mesOperationStatus',
         'mdmProcessRouteSequenceType'
       ].map((code) => userStore.ensureDictLoaded(code))
     )
