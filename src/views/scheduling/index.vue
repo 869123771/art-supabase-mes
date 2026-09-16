@@ -18,6 +18,9 @@
         @refresh="loadWorkspace"
       >
         <template #actions>
+          <ElButton v-auth="'MesScheduling:ConfigureRule'" plain @click="goToRules">
+            <ArtSvgIcon icon="ri:settings-3-line" />排产规则
+          </ElButton>
           <BusinessWorkspaceFocusToggle v-model="focusMode" />
         </template>
       </BusinessWorkspaceHeader>
@@ -38,6 +41,16 @@
           @retry="loadWorkspace"
         >
           <template #actions>
+            <ElButton
+              v-if="selectedOrderSchedulable"
+              v-auth="'MesScheduling:AutoSchedule'"
+              type="primary"
+              plain
+              :disabled="!state.rules.length || selectedOrder?.scheduleLocked"
+              @click="openAutoSchedule"
+            >
+              <ArtSvgIcon icon="ri:magic-line" />自动排产
+            </ElButton>
             <ElTag type="info" effect="plain" round> {{ queueOrders.length }} 张工单 </ElTag>
           </template>
 
@@ -212,13 +225,26 @@
                 </ElTag>
               </template>
               <template #operation="{ row }">
-                <ArtButtonTable
-                  type="edit"
-                  :label="row.schedulingStatus === 'scheduled' ? '调整排程' : '安排排程'"
-                  permission="MesOperationTask:Schedule"
-                  :disabled="!['pending', 'scheduled'].includes(row.schedulingStatus)"
-                  @click="openSchedule(row)"
-                />
+                <div class="scheduling-page__row-actions">
+                  <ElButton
+                    v-auth="'MesOperationTask:Schedule'"
+                    link
+                    :type="row.scheduleLocked ? 'warning' : 'info'"
+                    :disabled="!['pending', 'scheduled'].includes(row.schedulingStatus)"
+                    @click="toggleTaskLock(row)"
+                  >
+                    {{ row.scheduleLocked ? '解锁' : '锁定' }}
+                  </ElButton>
+                  <ArtButtonTable
+                    type="edit"
+                    :label="row.schedulingStatus === 'scheduled' ? '调整排程' : '安排排程'"
+                    permission="MesOperationTask:Schedule"
+                    :disabled="
+                      row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
+                    "
+                    @click="openSchedule(row)"
+                  />
+                </div>
               </template>
             </ArtTable>
           </template>
@@ -226,6 +252,7 @@
       </div>
 
       <ScheduleDialog ref="scheduleDialogRef" @success="loadWorkspace" />
+      <AutoScheduleDialog ref="autoScheduleDialogRef" @success="loadWorkspace" />
     </div>
   </ArtPermissionGuard>
 </template>
@@ -252,14 +279,20 @@
   import {
     fetchMesReferences,
     fetchOperationTasks,
+    fetchSchedulingRules,
     fetchWorkOrders,
+    setOperationTaskScheduleLock,
     type MesOperationTask,
     type MesReferenceOption,
+    type MesSchedulingRule,
     type MesWorkOrder
   } from '@mes/api'
   import ScheduleDialog, {
     type ScheduleDialogOpenData
   } from '../manufacturing/modules/schedule-dialog.vue'
+  import AutoScheduleDialog, {
+    type AutoScheduleDialogOpenData
+  } from './modules/auto-schedule-dialog.vue'
   import {
     conflictTaskIds,
     scheduleRisk,
@@ -269,7 +302,12 @@
   } from './modules/schedule-policy'
 
   defineOptions({ name: 'MesScheduling' })
-  const declaredPermissions = ['MesScheduling:View', 'MesOperationTask:Schedule'] as const
+  const declaredPermissions = [
+    'MesScheduling:View',
+    'MesScheduling:AutoSchedule',
+    'MesScheduling:ConfigureRule',
+    'MesOperationTask:Schedule'
+  ] as const
   void declaredPermissions
 
   const tenantScopeStore = useTenantScopeStore()
@@ -277,12 +315,16 @@
   const { focusMode } = useWorkspaceFocus()
   const { effectiveTenantId } = storeToRefs(tenantScopeStore)
   const scheduleDialogRef = ref<{ handleOpen: (data: ScheduleDialogOpenData) => Promise<void> }>()
+  const autoScheduleDialogRef = ref<{
+    handleOpen: (data: AutoScheduleDialogOpenData) => Promise<void>
+  }>()
   const state = reactive({
     loading: false,
     error: '',
     orders: [] as MesWorkOrder[],
     tasks: [] as MesOperationTask[],
-    workCenters: [] as MesReferenceOption[]
+    workCenters: [] as MesReferenceOption[],
+    rules: [] as MesSchedulingRule[]
   })
   const filters = reactive({ keyword: '', taskScope: 'all' as 'all' | 'attention' })
   const selectedOrderId = ref('')
@@ -375,7 +417,7 @@
     {
       prop: 'operation',
       label: '操作',
-      width: 104,
+      width: 156,
       fixed: 'right',
       align: 'center',
       useSlot: true
@@ -447,8 +489,22 @@
     void scheduleDialogRef.value?.handleOpen({ row, workCenters: state.workCenters })
   }
 
+  async function toggleTaskLock(row: MesOperationTask): Promise<void> {
+    await setOperationTaskScheduleLock(row.id, !row.scheduleLocked)
+    await loadWorkspace()
+  }
+
   function goToWorkOrders(): void {
     void router.push('/mes/production-plan/work-order')
+  }
+
+  function goToRules(): void {
+    void router.push('/mes/production-plan/scheduling-rules')
+  }
+
+  function openAutoSchedule(): void {
+    if (!selectedOrder.value) return
+    void autoScheduleDialogRef.value?.handleOpen({ order: selectedOrder.value, rules: state.rules })
   }
 
   let requestId = 0
@@ -459,15 +515,17 @@
     try {
       await tenantScopeStore.loadTenantOptions()
       const tenantId = effectiveTenantId.value || undefined
-      const [orders, tasks, references] = await Promise.all([
+      const [orders, tasks, references, rules] = await Promise.all([
         fetchWorkOrders({ current: 1, size: 300, tenantId }),
         fetchOperationTasks({ current: 1, size: 1000, tenantId }),
-        fetchMesReferences(tenantId)
+        fetchMesReferences(tenantId),
+        fetchSchedulingRules(tenantId)
       ])
       if (request !== requestId) return
       state.orders = orders.data
       state.tasks = tasks.data
       state.workCenters = references.workCenters
+      state.rules = rules
       if (!queueOrders.value.some((order) => order.id === selectedOrderId.value)) {
         selectedOrderId.value =
           queueOrders.value.find((order) => order.status === 'confirmed')?.id ||
@@ -541,6 +599,13 @@
         line-height: 1.5;
         color: var(--el-text-color-secondary);
       }
+    }
+
+    &__row-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: center;
     }
 
     &__order-scrollbar {

@@ -160,6 +160,12 @@
         { key: 'plannedStartDate', label: '计划开始', field: 'plannedStartDate', format: 'date' },
         { key: 'plannedEndDate', label: '计划结束', field: 'plannedEndDate', format: 'date' },
         {
+          key: 'requiredStartDate',
+          label: '工序要求开工日期',
+          field: 'requiredStartDate',
+          format: 'date'
+        },
+        {
           key: 'requiredCompletionDate',
           label: '工序要求完工日期',
           field: 'requiredCompletionDate',
@@ -170,6 +176,49 @@
           label: '工单起止日期',
           value: (row: MesOperationTask) =>
             `${row.workOrder?.plannedStartDate || '—'} — ${row.workOrder?.plannedEndDate || '—'}`
+        },
+        {
+          key: 'setupMinutes',
+          label: '调机时长',
+          field: 'setupMinutes',
+          formatter: (value) => `${value ?? 0} 分钟`
+        },
+        {
+          key: 'processingMinutes',
+          label: '加工时长',
+          field: 'processingMinutes',
+          formatter: (value) => `${value ?? 0} 分钟`
+        },
+        {
+          key: 'queueMinutes',
+          label: '排队时长',
+          field: 'queueMinutes',
+          formatter: (value) => `${value ?? 0} 分钟`
+        },
+        {
+          key: 'transferMinutes',
+          label: '转运时长',
+          field: 'transferMinutes',
+          formatter: (value) => `${value ?? 0} 分钟`
+        },
+        {
+          key: 'estimatedWorkMinutes',
+          label: '预计总工时',
+          field: 'estimatedWorkMinutes',
+          formatter: (value) => `${value ?? 0} 分钟`
+        },
+        {
+          key: 'scheduleSource',
+          label: '排产来源',
+          field: 'scheduleSource',
+          formatter: (value) => (value === 'rule' ? '规则自动排产' : '人工排产')
+        },
+        { key: 'scheduleVersion', label: '排产版本', field: 'scheduleVersion', format: 'number' },
+        {
+          key: 'scheduleLocked',
+          label: '任务锁定',
+          field: 'scheduleLocked',
+          formatter: (value) => (value ? '已锁定' : '未锁定')
         }
       ]
     },

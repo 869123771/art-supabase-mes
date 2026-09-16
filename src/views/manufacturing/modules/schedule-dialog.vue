@@ -63,7 +63,9 @@
     plannedDates: [{ required: true, message: '请选择计划周期', trigger: 'change' }]
   }
   const handleOpen = async (data: ScheduleDialogOpenData) => {
-    centers.value = data.workCenters
+    centers.value = data.row.eligibleWorkCenterIds.length
+      ? data.workCenters.filter((item) => data.row.eligibleWorkCenterIds.includes(item.id))
+      : data.workCenters
     model.workCenterId = data.row.workCenterId || ''
     model.plannedDates = [
       data.row.plannedStartDate ||

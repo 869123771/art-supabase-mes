@@ -68,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+  import dayjs from 'dayjs'
   import { cloneDeep, pick } from 'lodash-es'
   import { normalizeNullableText } from '@/utils/form/normalize'
   import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
@@ -84,6 +85,11 @@
   import { useUserStore } from '@/store/modules/user'
   import WorkOrderDetail from './work-order-detail.vue'
   import WorkOrderUrgencySegmented from './work-order-urgency-segmented.vue'
+  import {
+    calculatePlanFromEnd,
+    calculatePlanFromStart,
+    calculateProductionDays
+  } from './work-order-plan'
   import {
     fetchMesMaterialOptions,
     fetchMesReferences,
@@ -109,6 +115,11 @@
     plannerName: string
     dispatcherName: string
     inboundWarehouseName: string
+    productionFixedLeadDays: number
+    productionPreprocessDays: number
+    selfMadeProductionDays: number
+    productionPostprocessDays: number
+    productionDays: number
   }
 
   const emit = defineEmits<{ success: [mode: 'add' | 'edit'] }>()
@@ -141,6 +152,11 @@
     plannerName: '',
     dispatcherName: '',
     inboundWarehouseName: '',
+    productionFixedLeadDays: 0,
+    productionPreprocessDays: 0,
+    selfMadeProductionDays: 0,
+    productionPostprocessDays: 0,
+    productionDays: 0,
     orderQuantity: 1,
     isInitialDocument: false,
     plannedStartDate: null,
@@ -180,7 +196,8 @@
     { prop: 'productionUnitName', label: '生产单位', minWidth: 110 },
     { prop: 'plannerName', label: '计划员', minWidth: 110 },
     { prop: 'dispatcherName', label: '调度员', minWidth: 110 },
-    { prop: 'inboundWarehouseName', label: '入库仓库', minWidth: 130 }
+    { prop: 'inboundWarehouseName', label: '入库仓库', minWidth: 130 },
+    { prop: 'productionDays', label: '生产天数', width: 100, align: 'right' as const }
   ]
   const employeeSelection = (id?: string | null): EmployeeIntegrationItem[] => {
     const item = references.value.employees.find((employee) => employee.id === id)
@@ -252,16 +269,35 @@
       props: { disabled: locked.value, min: 0.000001, precision: 6, class: '!w-full' }
     },
     {
+      key: 'productionDays',
+      label: '生产天数',
+      type: 'number',
+      props: { disabled: true, min: 0, precision: 0, class: '!w-full' },
+      help: `固定 ${model.productionFixedLeadDays} 天 + 前处理 ${model.productionPreprocessDays} 天 + 自制 ${model.selfMadeProductionDays} 天 + 后处理 ${model.productionPostprocessDays} 天`
+    },
+    {
       key: 'plannedStartDate',
-      label: '计划开始',
+      label: '计划开始日期',
       type: 'date',
-      props: { disabled: locked.value, valueFormat: 'YYYY-MM-DD', class: '!w-full' }
+      props: {
+        disabled: locked.value,
+        valueFormat: 'YYYY-MM-DD',
+        class: '!w-full',
+        onChange: handlePlannedStartChange
+      },
+      help: '修改后按生产天数自动推算计划完工日期。'
     },
     {
       key: 'plannedEndDate',
-      label: '计划结束',
+      label: '计划完工日期',
       type: 'date',
-      props: { disabled: locked.value, valueFormat: 'YYYY-MM-DD', class: '!w-full' }
+      props: {
+        disabled: locked.value,
+        valueFormat: 'YYYY-MM-DD',
+        class: '!w-full',
+        onChange: handlePlannedEndChange
+      },
+      help: '修改后反推计划开始日期；若反推日期已过期，则从今天重新计算。'
     },
     {
       key: 'source',
@@ -337,7 +373,8 @@
     tenantId: [{ required: true, message: '请选择所属租户', trigger: 'change' }],
     materialId: [{ required: true, message: '请选择物料描述', trigger: 'change' }],
     orderQuantity: [{ required: true, message: '请输入工单数量', trigger: 'blur' }],
-    plannedEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }]
+    plannedStartDate: [{ required: true, message: '请选择计划开始日期', trigger: 'change' }],
+    plannedEndDate: [{ required: true, message: '请选择计划完工日期', trigger: 'change' }]
   }
 
   async function loadReferences() {
@@ -356,7 +393,33 @@
       size: params.pageSize
     })
   }
-  function applyMaterial(material?: MesMaterialOption): void {
+  function applyPlanFromStart(value: string): void {
+    const plan = calculatePlanFromStart(value, model.productionDays)
+    if (plan) Object.assign(model, plan)
+  }
+  function applyPlanFromEnd(value: string): void {
+    const plan = calculatePlanFromEnd(value, model.productionDays)
+    if (plan) Object.assign(model, plan)
+  }
+  function handlePlannedStartChange(value: unknown): void {
+    if (typeof value === 'string') applyPlanFromStart(value)
+  }
+  function handlePlannedEndChange(value: unknown): void {
+    if (typeof value === 'string') applyPlanFromEnd(value)
+  }
+  function applyMaterial(material?: MesMaterialOption, recalculatePlan = true): void {
+    const productionFixedLeadDays = material?.productionFixedLeadDays ?? 0
+    const productionPreprocessDays = material?.productionPreprocessDays ?? 0
+    const selfMadeProductionDays = material?.selfMadeProductionDays ?? 0
+    const productionPostprocessDays = material?.productionPostprocessDays ?? 0
+    const productionDays =
+      material?.productionDays ??
+      calculateProductionDays({
+        productionFixedLeadDays,
+        productionPreprocessDays,
+        selfMadeProductionDays,
+        productionPostprocessDays
+      })
     selectedMaterial.value = material
     Object.assign(model, {
       materialId: material?.id || '',
@@ -366,8 +429,17 @@
       productionUnitName: material?.productionUnitName || material?.unit || '',
       plannerName: material?.plannerName || '',
       dispatcherName: material?.dispatcherName || '',
-      inboundWarehouseName: material?.inboundWarehouseName || ''
+      inboundWarehouseName: material?.inboundWarehouseName || '',
+      productionFixedLeadDays,
+      productionPreprocessDays,
+      selfMadeProductionDays,
+      productionPostprocessDays,
+      productionDays
     })
+    if (!material || !recalculatePlan) return
+    if (model.plannedStartDate) applyPlanFromStart(model.plannedStartDate)
+    else if (model.plannedEndDate) applyPlanFromEnd(model.plannedEndDate)
+    else applyPlanFromStart(dayjs().format('YYYY-MM-DD'))
   }
   function handleMaterialChange(_value: unknown, rows: DataSelectRecord[]): void {
     applyMaterial(rows[0] as MesMaterialOption | undefined)
@@ -434,7 +506,12 @@
           dispatcherId: data.row.dispatcherId || undefined,
           dispatcherName: data.row.dispatcherNameSnapshot,
           inboundWarehouseId: data.row.inboundWarehouseId || undefined,
-          inboundWarehouseName: data.row.inboundWarehouseNameSnapshot
+          inboundWarehouseName: data.row.inboundWarehouseNameSnapshot,
+          productionFixedLeadDays: data.row.productionFixedLeadDaysSnapshot,
+          productionPreprocessDays: data.row.productionPreprocessDaysSnapshot,
+          selfMadeProductionDays: data.row.selfMadeProductionDaysSnapshot,
+          productionPostprocessDays: data.row.productionPostprocessDaysSnapshot,
+          productionDays: data.row.productionDaysSnapshot
         }
       : undefined
     Object.assign(
@@ -455,6 +532,11 @@
             plannerName: '',
             dispatcherName: '',
             inboundWarehouseName: '',
+            productionFixedLeadDays: 0,
+            productionPreprocessDays: 0,
+            selfMadeProductionDays: 0,
+            productionPostprocessDays: 0,
+            productionDays: 0,
             orderQuantity: 1,
             isInitialDocument: false,
             plannedStartDate: null,
@@ -474,7 +556,7 @@
             salesOrderQuantity: null
           }
     )
-    if (selectedMaterial.value) applyMaterial(selectedMaterial.value)
+    if (selectedMaterial.value) applyMaterial(selectedMaterial.value, false)
     await Promise.all(
       ['mesWorkOrderSource', 'mesWorkOrderUrgency', 'mesWorkOrderStatus'].map((code) =>
         userStore.ensureDictLoaded(code)

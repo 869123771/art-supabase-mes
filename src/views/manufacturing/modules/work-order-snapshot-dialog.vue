@@ -57,6 +57,8 @@
   import ArtTable from '@/components/core/tables/art-table/index.vue'
   import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
+  import ArtDictDisplay from '@/components/core/base/art-dict-display/index.vue'
+  import { useUserStore } from '@/store/modules/user'
   import type { ColumnOption } from '@/types'
   import type {
     MesWorkOrder,
@@ -71,6 +73,7 @@
   }
 
   const dialogRef = ref<ArtDialogExpose<WorkOrderSnapshotDialogOpenData>>()
+  const userStore = useUserStore()
   const record = shallowRef<MesWorkOrder>()
   const mode = ref<WorkOrderSnapshotMode>('bom')
   const bom = computed(() => record.value?.bomSnapshot?.[0])
@@ -78,8 +81,8 @@
   const routeSteps = computed(() => record.value?.routeSnapshot?.steps ?? [])
   const summaryDescription = computed(() =>
     mode.value === 'bom'
-      ? '展示工单保存时集成的 BOM；未配置组件工序时，系统默认分配到第一道工序。'
-      : '展示工单保存时集成的工艺路线；生产工序任务只会在工单确认后生成。'
+      ? '展示工单保存时集成的装配层 BOM；虚拟件自动穿透到下一层，未配置组件工序时默认分配到第一道工序。'
+      : '展示工单保存时集成的完整工艺路线与工序参数；生产工序任务只会在工单确认后生成。'
   )
   const bomSubtitle = computed(() =>
     bom.value
@@ -96,9 +99,32 @@
   const bomColumns: ColumnOption<MesWorkOrderBomItemSnapshot>[] = [
     { type: 'index', label: '序号', width: 70 },
     { prop: 'componentMaterialCode', label: '组件编码', minWidth: 150 },
-    { prop: 'componentMaterialName', label: '组件名称', minWidth: 180 },
+    {
+      prop: 'componentMaterialName',
+      label: '组件名称',
+      minWidth: 200,
+      formatter: (row) => (
+        <span class="work-order-snapshot__assignment">
+          <span>{row.componentMaterialName}</span>
+          {row.virtualUnexpanded && (
+            <ElTag size="small" type="warning" effect="plain">
+              虚拟件未展开
+            </ElTag>
+          )}
+        </span>
+      )
+    },
     { prop: 'componentSpecification', label: '规格型号', minWidth: 130 },
-    { prop: 'quantity', label: '用量', width: 100, align: 'right' },
+    { prop: 'basicQuantity', label: '基本数量（单台）', width: 150, align: 'right' },
+    { prop: 'requiredQuantity', label: '需求数量', width: 120, align: 'right' },
+    { prop: 'unitName', label: '单位', width: 90 },
+    {
+      prop: 'sourcePath',
+      label: '展开路径',
+      minWidth: 180,
+      showOverflowTooltip: true,
+      formatter: (row) => row.sourcePath?.join(' → ') || row.componentMaterialCode
+    },
     { prop: 'positionNo', label: '位号', minWidth: 100 },
     {
       prop: 'assignedOperationName',
@@ -118,15 +144,126 @@
   ]
   const routeColumns: ColumnOption<MesWorkOrderRouteStepSnapshot>[] = [
     { type: 'index', label: '顺序', width: 70 },
+    { prop: 'sequenceNo', label: '工序序列', width: 96, align: 'right' },
+    {
+      prop: 'sequenceType',
+      label: '序列类型',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay
+          dictCode="mdmProcessRouteSequenceType"
+          value={row.sequenceType}
+          display="text"
+        />
+      )
+    },
     { prop: 'code', label: '工序编码', minWidth: 140 },
     { prop: 'name', label: '工序名称', minWidth: 180 },
-    { prop: 'sequenceType', label: '序列类型', width: 110 },
+    { prop: 'basicBatch', label: '基本批量', width: 100, align: 'right' },
+    { prop: 'departmentName', label: '生产车间', minWidth: 130 },
+    {
+      prop: 'workCenterNames',
+      label: '工作中心',
+      minWidth: 180,
+      formatter: (row) => row.workCenterNames?.join('、') || '全部工作中心'
+    },
+    { prop: 'runOutputQuantity', label: '单趟产出', width: 110, align: 'right' },
+    { prop: 'runProcessingMinutes', label: '单趟加工(分)', width: 126, align: 'right' },
+    {
+      prop: 'runGreenMinutes',
+      label: '单趟绿灯(分)',
+      width: 126,
+      align: 'right',
+      formatter: (row) => row.runGreenMinutes ?? row.runProcessingMinutes
+    },
+    { prop: 'setupMinutes', label: '调机时长(分)', width: 118, align: 'right' },
+    {
+      prop: 'humanMachineRatio',
+      label: '人机系数',
+      width: 96,
+      formatter: (row) => `${row.operatorCount}:${row.machineCount}`
+    },
+    { prop: 'unitName', label: '工序单位', width: 100 },
+    {
+      prop: 'operationMode',
+      label: '工序模式',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay
+          dictCode="mdmProcessOperationMode"
+          value={row.operationMode}
+          display="text"
+        />
+      )
+    },
+    {
+      prop: 'processingMode',
+      label: '加工方式',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay dictCode="mdmProcessingMode" value={row.processingMode} display="text" />
+      )
+    },
+    {
+      prop: 'reportMode',
+      label: '汇报方式',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay dictCode="mdmReportMode" value={row.reportMode} display="text" />
+      )
+    },
+    {
+      prop: 'inspectionMode',
+      label: '检验方式',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay dictCode="mdmInspectionMode" value={row.inspectionMode} display="text" />
+      )
+    },
+    {
+      prop: 'sequenceControl',
+      label: '序列控制',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay dictCode="mdmSequenceControl" value={row.sequenceControl} display="text" />
+      )
+    },
+    {
+      prop: 'reworkMode',
+      label: '返工方式',
+      width: 110,
+      formatter: (row) => (
+        <ArtDictDisplay dictCode="mdmReworkMode" value={row.reworkMode} display="text" />
+      )
+    },
+    {
+      prop: 'qualityFlags',
+      label: '质量/关键标识',
+      minWidth: 170,
+      formatter: (row) =>
+        [row.needInspection && '需检验', row.firstInspection && '首检', row.critical && '关键工序']
+          .filter(Boolean)
+          .join('、') || '—'
+    },
     { prop: 'description', label: '工序说明', minWidth: 220, showOverflowTooltip: true }
   ]
 
   async function handleOpen(data: WorkOrderSnapshotDialogOpenData): Promise<void> {
     record.value = data.row
     mode.value = data.mode
+    if (data.mode === 'route') {
+      await Promise.all(
+        [
+          'mdmProcessRouteSequenceType',
+          'mdmProcessOperationMode',
+          'mdmProcessingMode',
+          'mdmReportMode',
+          'mdmInspectionMode',
+          'mdmSequenceControl',
+          'mdmReworkMode'
+        ].map((code) => userStore.ensureDictLoaded(code))
+      )
+    }
     await dialogRef.value?.handleOpen(data, {
       title: data.mode === 'bom' ? '工单 BOM' : '工单工艺路线',
       subtitle: data.row.materialNameSnapshot,

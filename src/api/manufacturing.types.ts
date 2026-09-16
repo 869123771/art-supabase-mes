@@ -3,6 +3,8 @@ export type WorkOrderUrgency = 'normal' | 'urgent1' | 'urgent2' | 'urgent3'
 export type OperationTaskStatus = 'unscheduled' | 'scheduled' | 'processing' | 'closed'
 export type OperationSchedulingStatus = 'no_schedule' | 'pending' | 'scheduled' | 'closed'
 export type OperationExecutionStatus = 'planned' | 'released' | 'started' | 'completed' | 'closed'
+export type SchedulingDirection = 'forward' | 'backward'
+export type SchedulingDispatchRule = 'priority' | 'edd' | 'fifo' | 'spt'
 
 export interface MesReferenceOption {
   id: string
@@ -23,6 +25,15 @@ export interface MesMaterialOption extends MesReferenceOption {
   dispatcherName?: string
   inboundWarehouseId?: string
   inboundWarehouseName?: string
+  productionFixedLeadDays?: number
+  productionPreprocessDays?: number
+  selfMadeProductionDays?: number
+  productionPostprocessDays?: number
+  productionDays?: number
+  schedulingPriority?: number
+  schedulingStrategy?: 'inherit' | SchedulingDirection
+  planningTimeFenceDays?: number
+  batchRoundingQuantity?: number
 }
 
 export interface MesWorkOrderBomItemSnapshot {
@@ -33,13 +44,18 @@ export interface MesWorkOrderBomItemSnapshot {
   componentSpecification: string
   sequenceNo: number
   quantity: number
+  basicQuantity: number
+  requiredQuantity: number
   unitId: string
+  unitName: string
   positionNo: string | null
   operationName: string | null
   assignedRouteStepId: string | null
   assignedOperationCode: string | null
   assignedOperationName: string | null
   assignmentSource: 'configured' | 'first_operation' | 'unassigned'
+  sourcePath: string[]
+  virtualUnexpanded: boolean
 }
 
 export interface MesWorkOrderBomSnapshot {
@@ -55,9 +71,34 @@ export interface MesWorkOrderRouteStepSnapshot {
   code: string
   name: string
   sort: number
+  sequenceNo: number
   sequenceType: string
   workCenterId: string | null
+  workCenterIds: string[]
+  workCenterNames: string[]
   departmentId: string | null
+  departmentName: string
+  unitId: string | null
+  unitName: string
+  basicBatch: number
+  runOutputQuantity: number
+  runProcessingMinutes: number
+  runGreenMinutes: number | null
+  setupMinutes: number
+  operatorCount: number
+  machineCount: number
+  operationMode: string
+  processingMode: string
+  reportMode: string
+  inspectionMode: string
+  sequenceControl: string
+  reworkMode: string
+  firstInspectionControl: string
+  needInspection: boolean
+  firstInspection: boolean
+  isFirst: boolean
+  isLast: boolean
+  critical: boolean
   description: string
 }
 
@@ -91,6 +132,18 @@ export interface MesWorkOrder {
   isInitialDocument: boolean
   plannedStartDate: string | null
   plannedEndDate: string
+  productionFixedLeadDaysSnapshot: number
+  productionPreprocessDaysSnapshot: number
+  selfMadeProductionDaysSnapshot: number
+  productionPostprocessDaysSnapshot: number
+  productionDaysSnapshot: number
+  schedulingRuleId: string | null
+  schedulingPriority: number
+  schedulingStrategySnapshot: SchedulingDirection
+  planningTimeFenceDaysSnapshot: number
+  batchRoundingQuantitySnapshot: number | null
+  scheduleLocked: boolean
+  lastScheduledAt: string | null
   source: string
   urgency: WorkOrderUrgency
   status: WorkOrderStatus
@@ -187,8 +240,22 @@ export interface MesOperationTask {
   plannedStartDate: string | null
   plannedEndDate: string | null
   requiredCompletionDate: string | null
+  requiredStartDate: string | null
   departmentId: string | null
   workCenterId: string | null
+  eligibleWorkCenterIds: string[]
+  setupMinutes: number
+  processingMinutes: number
+  queueMinutes: number
+  transferMinutes: number
+  estimatedWorkMinutes: number
+  minimumTransferQuantity: number
+  overlapEnabled: boolean
+  scheduleLocked: boolean
+  scheduleSource: 'manual' | 'rule'
+  schedulingRuleId: string | null
+  scheduledAt: string | null
+  scheduleVersion: number
   status: OperationTaskStatus
   schedulingStatus: OperationSchedulingStatus
   operationStatus: OperationExecutionStatus
@@ -234,6 +301,62 @@ export interface MesOperationTaskScheduleInput {
   workCenterId: string
   plannedStartDate: string
   plannedEndDate: string
+}
+
+export interface MesSchedulingRule {
+  id: string
+  tenantId: string
+  code: string
+  name: string
+  enabled: boolean
+  isDefault: boolean
+  direction: SchedulingDirection
+  dispatchingRule: SchedulingDispatchRule
+  finiteCapacity: boolean
+  respectCalendar: boolean
+  includeSetupTime: boolean
+  includeQueueTime: boolean
+  includeTransferTime: boolean
+  preserveLockedTasks: boolean
+  allowOvertime: boolean
+  frozenHorizonDays: number
+  planningHorizonDays: number
+  priorityWeight: number
+  dueDateWeight: number
+  criticalOperationWeight: number
+  resourceSelectionStrategy: 'earliest_available' | 'least_load' | 'preferred'
+  conflictStrategy: 'reject' | 'warn' | 'allow'
+  remark: string
+  createTime: string
+  updateTime: string
+}
+
+export type MesSchedulingRuleInput = Omit<MesSchedulingRule, 'id' | 'createTime' | 'updateTime'>
+
+export interface MesAutoScheduleProposal {
+  taskId: string
+  taskNo: string
+  operationName: string
+  sequenceNo: number
+  workCenterId: string
+  workCenterCode: string
+  workCenterName: string
+  plannedStartDate: string
+  plannedEndDate: string
+  estimatedMinutes: number
+  capacityMinutesPerDay: number
+  durationDays: number
+}
+
+export interface MesAutoScheduleResult {
+  workOrderId: string
+  ruleId: string
+  ruleName: string
+  applied: boolean
+  scheduledCount: number
+  skippedCount: number
+  proposals: MesAutoScheduleProposal[]
+  warnings: string[]
 }
 
 export interface MesListQuery {

@@ -4,12 +4,15 @@ import { buildOrIlikeFilter } from '@/utils/supabase/search'
 import type {
   MesListQuery,
   MesBatchResult,
+  MesAutoScheduleResult,
   MesMaterialOption,
   MesMaterialOptionQuery,
   MesOperationTask,
   MesOperationTaskScheduleInput,
   MesReferenceOption,
   MesReferences,
+  MesSchedulingRule,
+  MesSchedulingRuleInput,
   MesWorkOrder,
   MesWorkOrderInput
 } from './manufacturing.types'
@@ -226,6 +229,66 @@ export async function scheduleOperationTask(input: MesOperationTaskScheduleInput
       }),
     { ...writeOptions, requireAffected: false, message: '排程已更新' }
   )
+  return data
+}
+
+export async function fetchSchedulingRules(tenantId?: string | null) {
+  let query = supabase
+    .from('mes_scheduling_rule')
+    .select('*')
+    .order('is_default', { ascending: false })
+    .order('update_time', { ascending: false })
+  if (tenantId) query = query.eq('tenant_id', tenantId)
+  const { data } = await responseHandle<MesSchedulingRule[]>(() => query, readOptions)
+  return data ?? []
+}
+
+export async function saveSchedulingRule(input: MesSchedulingRuleInput, id?: string) {
+  const payload = keysToSnakeDeep(input)
+  await responseHandle(
+    () => supabase.rpc('mes_save_scheduling_rule', { p_id: id || null, p_payload: payload }),
+    {
+      ...writeOptions,
+      requireAffected: false,
+      message: id ? '排产规则已更新' : '排产规则已创建'
+    }
+  )
+}
+
+export async function setOperationTaskScheduleLock(id: string, locked: boolean) {
+  await responseHandle(
+    () => supabase.rpc('mes_set_operation_task_schedule_lock', { p_id: id, p_locked: locked }),
+    {
+      ...writeOptions,
+      requireAffected: false,
+      message: locked ? '工序排产已锁定' : '工序排产已解锁'
+    }
+  )
+}
+
+export async function deleteSchedulingRule(id: string) {
+  await responseHandle(
+    () => supabase.from('mes_scheduling_rule').delete().eq('id', id).select('id'),
+    { ...writeOptions, message: '排产规则已删除' }
+  )
+}
+
+export async function autoScheduleWorkOrder(workOrderId: string, ruleId: string, apply: boolean) {
+  const { data } = await responseHandle<MesAutoScheduleResult>(
+    () =>
+      supabase.rpc('mes_auto_schedule_work_order', {
+        p_work_order_id: workOrderId,
+        p_rule_id: ruleId,
+        p_apply: apply
+      }),
+    {
+      ...writeOptions,
+      requireAffected: false,
+      showMessage: apply,
+      message: apply ? '自动排产已应用' : ''
+    }
+  )
+  if (!data) throw new Error('自动排产未返回结果')
   return data
 }
 

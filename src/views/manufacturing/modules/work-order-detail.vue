@@ -102,6 +102,43 @@
           { key: 'plannedStartDate', label: '计划开始', field: 'plannedStartDate', format: 'date' },
           { key: 'plannedEndDate', label: '计划结束', field: 'plannedEndDate', format: 'date' },
           {
+            key: 'productionDaysSnapshot',
+            label: '生产天数',
+            field: 'productionDaysSnapshot',
+            formatter: (value, row) =>
+              `${value ?? 0} 天（固定 ${row.productionFixedLeadDaysSnapshot ?? 0} + 前处理 ${row.productionPreprocessDaysSnapshot ?? 0} + 自制 ${row.selfMadeProductionDaysSnapshot ?? 0} + 后处理 ${row.productionPostprocessDaysSnapshot ?? 0}）`
+          },
+          {
+            key: 'schedulingPriority',
+            label: '排产优先级',
+            field: 'schedulingPriority',
+            format: 'number'
+          },
+          {
+            key: 'schedulingStrategySnapshot',
+            label: '排产方向',
+            field: 'schedulingStrategySnapshot',
+            formatter: (value) => (value === 'backward' ? '反向排产' : '正向排产')
+          },
+          {
+            key: 'planningTimeFenceDaysSnapshot',
+            label: '计划冻结期',
+            field: 'planningTimeFenceDaysSnapshot',
+            formatter: (value) => `${value ?? 0} 天`
+          },
+          {
+            key: 'scheduleLocked',
+            label: '排产锁定',
+            field: 'scheduleLocked',
+            formatter: (value) => (value ? '已锁定' : '未锁定')
+          },
+          {
+            key: 'lastScheduledAt',
+            label: '最近自动排产',
+            field: 'lastScheduledAt',
+            format: 'datetime'
+          },
+          {
             key: 'source',
             label: '工单来源',
             field: 'source',

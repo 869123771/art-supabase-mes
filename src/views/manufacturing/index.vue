@@ -425,6 +425,7 @@
     { key: 'createTime', title: '工序创建日期' },
     { key: 'workOrder.plannedStartDate', title: '工单开工日期' },
     { key: 'workOrder.plannedEndDate', title: '工单完工日期' },
+    { key: 'requiredStartDate', title: '工序要求开工日期' },
     { key: 'requiredCompletionDate', title: '工序要求完工日期' },
     { key: 'workOrder.source', title: '工单来源' },
     { key: 'workOrder.remark', title: '工单备注' },
@@ -849,6 +850,7 @@
       width: 120,
       formatter: (row) => row.workOrder?.plannedEndDate || '—'
     },
+    { prop: 'requiredStartDate', label: '工序要求开工日期', width: 140 },
     { prop: 'requiredCompletionDate', label: '工序要求完工日期', width: 140 },
     {
       prop: 'source',
