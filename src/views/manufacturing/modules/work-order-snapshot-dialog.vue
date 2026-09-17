@@ -1,5 +1,5 @@
 <template>
-  <ArtDialog ref="dialogRef" size="xl">
+  <ArtDialog ref="dialogRef" size="xl" show-fullscreen-button>
     <div class="work-order-snapshot">
       <ArtEntitySummary
         class="work-order-snapshot__context"
@@ -72,13 +72,33 @@
     mode: WorkOrderSnapshotMode
   }
 
+  interface WorkOrderBomDisplayItem extends MesWorkOrderBomItemSnapshot {
+    assignedOperationSequenceNo: number | null
+    assignedOperationSequenceType: string
+  }
+
   const dialogRef = ref<ArtDialogExpose<WorkOrderSnapshotDialogOpenData>>()
   const userStore = useUserStore()
   const record = shallowRef<MesWorkOrder>()
   const mode = ref<WorkOrderSnapshotMode>('bom')
   const bom = computed(() => record.value?.bomSnapshot?.[0])
-  const bomItems = computed(() => bom.value?.items ?? [])
   const routeSteps = computed(() => record.value?.routeSnapshot?.steps ?? [])
+  const routeStepById = computed(
+    () => new Map(routeSteps.value.map((routeStep) => [routeStep.id, routeStep]))
+  )
+  const bomItems = computed<WorkOrderBomDisplayItem[]>(() =>
+    (bom.value?.items ?? []).map((item) => {
+      const assignedRouteStep = item.assignedRouteStepId
+        ? routeStepById.value.get(item.assignedRouteStepId)
+        : undefined
+
+      return {
+        ...item,
+        assignedOperationSequenceNo: assignedRouteStep?.sequenceNo ?? null,
+        assignedOperationSequenceType: assignedRouteStep?.sequenceType ?? ''
+      }
+    })
+  )
   const summaryDescription = computed(() =>
     mode.value === 'bom'
       ? '展示工单保存时集成的装配层 BOM；虚拟件自动穿透到下一层，未配置组件工序时默认分配到第一道工序。'
@@ -96,7 +116,7 @@
       : '尚未集成工艺路线'
   })
 
-  const bomColumns: ColumnOption<MesWorkOrderBomItemSnapshot>[] = [
+  const bomColumns: ColumnOption<WorkOrderBomDisplayItem>[] = [
     { type: 'index', label: '序号', width: 70 },
     { prop: 'componentMaterialCode', label: '组件编码', minWidth: 150 },
     {
@@ -126,6 +146,28 @@
       formatter: (row) => row.sourcePath?.join(' → ') || row.componentMaterialCode
     },
     { prop: 'positionNo', label: '位号', minWidth: 100 },
+    {
+      prop: 'assignedOperationSequenceNo',
+      label: '工序序列',
+      width: 100,
+      align: 'right',
+      formatter: (row) => row.assignedOperationSequenceNo ?? '—'
+    },
+    {
+      prop: 'assignedOperationSequenceType',
+      label: '序列类型',
+      width: 110,
+      formatter: (row) =>
+        row.assignedOperationSequenceType ? (
+          <ArtDictDisplay
+            dictCode="mdmProcessRouteSequenceType"
+            value={row.assignedOperationSequenceType}
+            display="text"
+          />
+        ) : (
+          '—'
+        )
+    },
     {
       prop: 'assignedOperationName',
       label: '分配工序',
@@ -251,19 +293,19 @@
   async function handleOpen(data: WorkOrderSnapshotDialogOpenData): Promise<void> {
     record.value = data.row
     mode.value = data.mode
-    if (data.mode === 'route') {
-      await Promise.all(
-        [
-          'mdmProcessRouteSequenceType',
-          'mdmProcessOperationMode',
-          'mdmProcessingMode',
-          'mdmReportMode',
-          'mdmInspectionMode',
-          'mdmSequenceControl',
-          'mdmReworkMode'
-        ].map((code) => userStore.ensureDictLoaded(code))
-      )
-    }
+    const dictionaryCodes =
+      data.mode === 'route'
+        ? [
+            'mdmProcessRouteSequenceType',
+            'mdmProcessOperationMode',
+            'mdmProcessingMode',
+            'mdmReportMode',
+            'mdmInspectionMode',
+            'mdmSequenceControl',
+            'mdmReworkMode'
+          ]
+        : ['mdmProcessRouteSequenceType']
+    await Promise.all(dictionaryCodes.map((code) => userStore.ensureDictLoaded(code)))
     await dialogRef.value?.handleOpen(data, {
       title: data.mode === 'bom' ? '工单 BOM' : '工单工艺路线',
       subtitle: data.row.materialNameSnapshot,
