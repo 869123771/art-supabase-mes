@@ -1,6 +1,7 @@
 import { useSupabase } from '@/hooks'
 import { normalizeNullableText } from '@/utils/form/normalize'
 import { buildOrIlikeFilter } from '@/utils/supabase/search'
+import { fetchAllRangePages } from '@/utils/supabase/pagination'
 import type {
   MesListQuery,
   MesBatchResult,
@@ -9,6 +10,9 @@ import type {
   MesMaterialOptionQuery,
   MesOperationTask,
   MesOperationTaskScheduleInput,
+  MesProductionDepartment,
+  MesProductionScope,
+  MesProductionScopeCenter,
   MesReferenceOption,
   MesReferences,
   MesSchedulingRule,
@@ -108,6 +112,19 @@ export async function transitionWorkOrder(id: string, action: string) {
   return data
 }
 
+export async function reloadWorkOrderSnapshot(id: string) {
+  const { data } = await responseHandle<{
+    id: string
+    bomCount: number
+    routeStepCount: number
+  }>(() => supabase.rpc('mes_reload_work_order_snapshot', { p_id: id }), {
+    ...writeOptions,
+    requireAffected: false,
+    message: '已重读最新 BOM 与工艺路线'
+  })
+  return data
+}
+
 export async function batchTransitionWorkOrders(ids: string[], action: string) {
   const { data } = await responseHandle<MesBatchResult>(
     () => supabase.rpc('mes_batch_transition_work_orders', { p_ids: ids, p_action: action }),
@@ -179,10 +196,9 @@ export async function fetchOperationTasks(
   let query = supabase
     .from('mes_operation_task')
     .select(
-      '*,workOrder:mes_work_order!mes_operation_task_order_fk(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name)',
+      '*,workOrder:mes_work_order!mes_operation_task_order_fk!inner(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name)',
       { count: 'exact' }
     )
-    .order('update_time', { ascending: false })
     .range((params.current - 1) * params.size, params.current * params.size - 1)
   if (params.tenantId) query = query.eq('tenant_id', params.tenantId)
   if (!params.includeDeleted) query = query.is('deleted_at', null)
@@ -195,8 +211,15 @@ export async function fetchOperationTasks(
   if (schedulingStatuses.length) query = query.in('scheduling_status', schedulingStatuses)
   if (operationStatuses.length) query = query.in('operation_status', operationStatuses)
   if (params.workCenterId) query = query.eq('work_center_id', params.workCenterId)
+  else if (params.departmentIds?.length) query = query.in('department_id', params.departmentIds)
   if (params.plannedDates?.[0]) query = query.gte('planned_end_date', params.plannedDates[0])
   if (params.plannedDates?.[1]) query = query.lte('planned_start_date', params.plannedDates[1])
+  if (params.workOrderStartDates?.[0]) {
+    query = query.gte('workOrder.planned_start_date', params.workOrderStartDates[0])
+  }
+  if (params.workOrderStartDates?.[1]) {
+    query = query.lte('workOrder.planned_start_date', params.workOrderStartDates[1])
+  }
   if (params.keyword?.trim()) {
     query = query.or(
       buildOrIlikeFilter(
@@ -205,6 +228,16 @@ export async function fetchOperationTasks(
       )
     )
   }
+  const sortColumnMap = {
+    sequenceNo: 'sequence_no',
+    operationCode: 'operation_code',
+    workOrderNo: 'workOrder(work_order_no)',
+    taskNo: 'task_no'
+  } as const
+  const sortColumn = params.sortBy ? sortColumnMap[params.sortBy] : undefined
+  query = sortColumn
+    ? query.order(sortColumn, { ascending: params.sortOrder !== 'descending' })
+    : query.order('update_time', { ascending: false })
   const { data, total } = await responseHandle<MesOperationTask[]>(
     () => (options?.signal ? query.abortSignal(options.signal) : query),
     readOptions
@@ -328,15 +361,48 @@ export async function annotateOperationTask(
   )
 }
 
-export async function updateOperationTaskDueDate(id: string, requiredCompletionDate: string) {
-  return responseHandle(
+export async function updateOperationTaskDueDates(
+  ids: string[],
+  requiredCompletionDate: string
+): Promise<MesBatchResult> {
+  const { data } = await responseHandle<MesBatchResult>(
     () =>
-      supabase.rpc('mes_update_operation_task_due_date', {
-        p_id: id,
+      supabase.rpc('mes_batch_update_operation_task_due_date', {
+        p_ids: ids,
         p_required_completion_date: requiredCompletionDate
       }),
-    { ...writeOptions, requireAffected: false, message: '工序要求完工日期已更新' }
+    { ...writeOptions, requireAffected: false, showMessage: false, message: '' }
   )
+  return data ?? { successIds: [], failures: [] }
+}
+
+export async function fetchOperationTaskScope(
+  tenantId?: string | null
+): Promise<MesProductionScope> {
+  const [departmentResult, centerResult] = await Promise.all([
+    fetchAllRangePages<MesProductionDepartment>(({ from, to }) => {
+      let query = supabase
+        .from('mdm_production_department')
+        .select('id,tenant_id,parent_id,name,code,enabled,sort')
+        .order('sort')
+        .order('code')
+      if (tenantId) query = query.eq('tenant_id', tenantId)
+      return responseHandle<MesProductionDepartment[]>(() => query.range(from, to), readOptions)
+    }),
+    fetchAllRangePages<MesProductionScopeCenter>(({ from, to }) => {
+      let query = supabase
+        .from('mdm_work_center')
+        .select('id,tenant_id,department_id,code,name,sort')
+        .order('sort')
+        .order('code')
+      if (tenantId) query = query.eq('tenant_id', tenantId)
+      return responseHandle<MesProductionScopeCenter[]>(() => query.range(from, to), readOptions)
+    })
+  ])
+  return {
+    departments: departmentResult.data ?? [],
+    workCenters: centerResult.data ?? []
+  }
 }
 
 export async function fetchMesReferences(tenantId?: string): Promise<MesReferences> {

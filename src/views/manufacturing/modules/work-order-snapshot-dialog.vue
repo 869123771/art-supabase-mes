@@ -7,7 +7,26 @@
         eyebrow="WORK ORDER SNAPSHOT"
         :title="record?.workOrderNo || '生产工单'"
         :description="summaryDescription"
-      />
+      >
+        <template #aside>
+          <dl class="work-order-snapshot__facts" aria-label="生产资料快照概览">
+            <div>
+              <dt>{{ mode === 'bom' ? '组件数量' : '工序数量' }}</dt>
+              <dd>{{ mode === 'bom' ? bomItems.length : routeSteps.length }}</dd>
+            </div>
+            <div>
+              <dt>快照版本</dt>
+              <dd>{{
+                mode === 'bom' ? bom?.version || '—' : record?.routeSnapshot?.version || '—'
+              }}</dd>
+            </div>
+            <div>
+              <dt>要求周期</dt>
+              <dd>{{ record?.plannedStartDate || '—' }} → {{ record?.plannedEndDate || '—' }}</dd>
+            </div>
+          </dl>
+        </template>
+      </ArtEntitySummary>
 
       <ArtSectionCard
         v-if="mode === 'bom'"
@@ -15,7 +34,7 @@
         :subtitle="bomSubtitle"
         :empty="bomItems.length === 0"
         empty-title="当前工单没有 BOM 组件"
-        empty-description="请先为物料维护 BOM，再保存待确认工单以重新集成。"
+        empty-description="请先维护该物料 BOM，再点击“重读 BOM/工艺”更新工单快照。"
       >
         <ArtTable
           v-if="bomItems.length"
@@ -34,7 +53,7 @@
         :subtitle="routeSubtitle"
         :empty="routeSteps.length === 0"
         empty-title="当前工单没有工艺路线"
-        empty-description="请先为物料维护工艺路线及工序，再保存待确认工单以重新集成。"
+        empty-description="请先维护该物料工艺路线，再点击“重读 BOM/工艺”更新工单快照。"
       >
         <ArtTable
           v-if="routeSteps.length"
@@ -59,12 +78,14 @@
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
   import ArtDictDisplay from '@/components/core/base/art-dict-display/index.vue'
   import { useUserStore } from '@/store/modules/user'
+  import { formatNumberValue } from '@/utils/ui'
   import type { ColumnOption } from '@/types'
   import type {
     MesWorkOrder,
     MesWorkOrderBomItemSnapshot,
     MesWorkOrderRouteStepSnapshot
   } from '@mes/api'
+  import { calculateOperationQuantity } from './work-order-plan'
 
   export type WorkOrderSnapshotMode = 'bom' | 'route'
   export interface WorkOrderSnapshotDialogOpenData {
@@ -77,12 +98,28 @@
     assignedOperationSequenceType: string
   }
 
+  interface WorkOrderRouteDisplayStep extends MesWorkOrderRouteStepSnapshot {
+    operationQuantity: number
+    requiredStartDate: string
+    requiredCompletionDate: string
+  }
+
   const dialogRef = ref<ArtDialogExpose<WorkOrderSnapshotDialogOpenData>>()
   const userStore = useUserStore()
   const record = shallowRef<MesWorkOrder>()
   const mode = ref<WorkOrderSnapshotMode>('bom')
   const bom = computed(() => record.value?.bomSnapshot?.[0])
-  const routeSteps = computed(() => record.value?.routeSnapshot?.steps ?? [])
+  const routeSteps = computed<WorkOrderRouteDisplayStep[]>(() =>
+    (record.value?.routeSnapshot?.steps ?? []).map((step) => ({
+      ...step,
+      operationQuantity: calculateOperationQuantity(
+        record.value?.orderQuantity ?? 0,
+        step.basicBatch
+      ),
+      requiredStartDate: record.value?.plannedStartDate || '',
+      requiredCompletionDate: record.value?.plannedEndDate || ''
+    }))
+  )
   const routeStepById = computed(
     () => new Map(routeSteps.value.map((routeStep) => [routeStep.id, routeStep]))
   )
@@ -184,7 +221,7 @@
       )
     }
   ]
-  const routeColumns: ColumnOption<MesWorkOrderRouteStepSnapshot>[] = [
+  const routeColumns: ColumnOption<WorkOrderRouteDisplayStep>[] = [
     { type: 'index', label: '顺序', width: 70 },
     { prop: 'sequenceNo', label: '工序序列', width: 96, align: 'right' },
     {
@@ -199,9 +236,24 @@
         />
       )
     },
-    { prop: 'code', label: '工序编码', minWidth: 140 },
+    { prop: 'code', label: '工序号', minWidth: 110 },
     { prop: 'name', label: '工序名称', minWidth: 180 },
+    {
+      prop: 'operationCode',
+      label: '工序编码',
+      minWidth: 130,
+      formatter: (row) => row.operationCode || '自定义'
+    },
     { prop: 'basicBatch', label: '基本批量', width: 100, align: 'right' },
+    {
+      prop: 'operationQuantity',
+      label: '工序数量',
+      width: 110,
+      align: 'right',
+      formatter: (row) => formatNumberValue(row.operationQuantity)
+    },
+    { prop: 'requiredStartDate', label: '工序要求开工时间', width: 150 },
+    { prop: 'requiredCompletionDate', label: '工序要求完工时间', width: 150 },
     { prop: 'departmentName', label: '生产车间', minWidth: 130 },
     {
       prop: 'workCenterNames',
@@ -219,6 +271,21 @@
       formatter: (row) => row.runGreenMinutes ?? row.runProcessingMinutes
     },
     { prop: 'setupMinutes', label: '调机时长(分)', width: 118, align: 'right' },
+    { prop: 'queueMinutes', label: '排队时长(分)', width: 118, align: 'right' },
+    { prop: 'transferMinutes', label: '转移时长(分)', width: 118, align: 'right' },
+    {
+      prop: 'minimumTransferQuantity',
+      label: '最小转移批量',
+      width: 126,
+      align: 'right'
+    },
+    {
+      prop: 'overlapEnabled',
+      label: '允许重叠',
+      width: 96,
+      align: 'center',
+      formatter: (row) => (row.overlapEnabled ? '是' : '否')
+    },
     {
       prop: 'humanMachineRatio',
       label: '人机系数',
@@ -226,6 +293,12 @@
       formatter: (row) => `${row.operatorCount}:${row.machineCount}`
     },
     { prop: 'unitName', label: '工序单位', width: 100 },
+    {
+      prop: 'controlCodeName',
+      label: '工序控制码',
+      minWidth: 150,
+      formatter: (row) => [row.controlCode, row.controlCodeName].filter(Boolean).join(' · ') || '—'
+    },
     {
       prop: 'operationMode',
       label: '工序模式',
@@ -279,13 +352,51 @@
       )
     },
     {
-      prop: 'qualityFlags',
-      label: '质量/关键标识',
-      minWidth: 170,
-      formatter: (row) =>
-        [row.needInspection && '需检验', row.firstInspection && '首检', row.critical && '关键工序']
-          .filter(Boolean)
-          .join('、') || '—'
+      prop: 'needInspection',
+      label: '工序质检',
+      width: 92,
+      align: 'center',
+      formatter: (row) => (row.needInspection ? '是' : '否')
+    },
+    {
+      prop: 'firstInspection',
+      label: '首检',
+      width: 72,
+      align: 'center',
+      formatter: (row) => (row.firstInspection ? '是' : '否')
+    },
+    {
+      prop: 'firstInspectionControl',
+      label: '首检控制方式',
+      width: 130,
+      formatter: (row) => (
+        <ArtDictDisplay
+          dictCode="mdmProcessSequenceControlMode"
+          value={row.firstInspectionControl}
+          display="text"
+        />
+      )
+    },
+    {
+      prop: 'isFirst',
+      label: '首序',
+      width: 72,
+      align: 'center',
+      formatter: (row) => (row.isFirst ? '是' : '否')
+    },
+    {
+      prop: 'isLast',
+      label: '末序',
+      width: 72,
+      align: 'center',
+      formatter: (row) => (row.isLast ? '是' : '否')
+    },
+    {
+      prop: 'critical',
+      label: '关键',
+      width: 80,
+      align: 'center',
+      formatter: (row) => (row.critical ? '是' : '否')
     },
     { prop: 'description', label: '工序说明', minWidth: 220, showOverflowTooltip: true }
   ]
@@ -302,7 +413,8 @@
             'mdmReportMode',
             'mdmInspectionMode',
             'mdmSequenceControl',
-            'mdmReworkMode'
+            'mdmReworkMode',
+            'mdmProcessSequenceControlMode'
           ]
         : ['mdmProcessRouteSequenceType']
     await Promise.all(dictionaryCodes.map((code) => userStore.ensureDictLoaded(code)))
@@ -327,11 +439,48 @@
       min-width: 0;
     }
 
+    &__facts {
+      display: grid;
+      grid-template-columns: repeat(3, auto);
+      gap: 20px;
+      margin: 0;
+
+      div {
+        display: grid;
+        gap: 2px;
+      }
+
+      dt,
+      dd {
+        margin: 0;
+      }
+
+      dt {
+        font-size: 12px;
+        color: var(--art-gray-600);
+      }
+
+      dd {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--art-gray-900);
+      }
+    }
+
     :deep(.work-order-snapshot__assignment) {
       display: inline-flex;
       gap: 8px;
       align-items: center;
       min-width: 0;
+    }
+  }
+
+  @media (width <= 960px) {
+    .work-order-snapshot {
+      &__facts {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
     }
   }
 </style>

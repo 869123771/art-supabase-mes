@@ -6,7 +6,7 @@
         icon="ri:calendar-check-line"
         eyebrow="REQUIRED COMPLETION"
         :title="taskTitle"
-        :description="`${taskNo} · 调整工序要求完工日期，不改变生产工单的计划完工日期。`"
+        :description="description"
       />
       <ArtForm
         ref="formRef"
@@ -26,18 +26,25 @@
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtForm, { type FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
-  import { updateOperationTaskDueDate, type MesOperationTask } from '@mes/api'
+  import { updateOperationTaskDueDates, type MesBatchResult, type MesOperationTask } from '@mes/api'
 
   export interface TaskDueDateDialogOpenData {
-    row: MesOperationTask
+    rows: MesOperationTask[]
   }
 
-  const emit = defineEmits<{ success: [] }>()
+  const emit = defineEmits<{ success: [result: MesBatchResult] }>()
   const dialogRef = ref<ArtDialogExpose<TaskDueDateDialogOpenData>>()
   const formRef = ref<InstanceType<typeof ArtForm>>()
-  const taskId = ref('')
-  const taskNo = ref('')
+  const selectedIds = ref<string[]>([])
+  const selectedRows = shallowRef<MesOperationTask[]>([])
   const taskTitle = ref('工序任务')
+  const description = computed(() => {
+    const rows = selectedRows.value
+    if (rows.length === 1) {
+      return `${rows[0]?.taskNo || '工序任务'} · 调整工序要求完工日期，不改变生产工单的计划完工日期。`
+    }
+    return `将统一调整 ${rows.length} 条工序任务的要求完工日期；已关闭任务会在处理结果中说明。`
+  })
   const model = reactive({ requiredCompletionDate: '' })
   const items: FormItem[] = [
     {
@@ -60,20 +67,32 @@
   }
 
   async function handleOpen(data: TaskDueDateDialogOpenData): Promise<void> {
-    taskId.value = data.row.id
-    taskNo.value = data.row.taskNo
-    taskTitle.value = data.row.operationName || '工序任务'
-    model.requiredCompletionDate = data.row.requiredCompletionDate || ''
+    selectedRows.value = [...data.rows]
+    selectedIds.value = data.rows.map((row) => row.id)
+    taskTitle.value =
+      data.rows.length === 1 ? data.rows[0]?.operationName || '工序任务' : '批量维护要求完工日期'
+    const firstDate = data.rows[0]?.requiredCompletionDate || ''
+    model.requiredCompletionDate = data.rows.every(
+      (row) => (row.requiredCompletionDate || '') === firstDate
+    )
+      ? firstDate
+      : ''
     await dialogRef.value?.handleOpen(data, {
-      title: '维护要求完工日期',
-      subtitle: data.row.workOrder?.workOrderNo || data.row.taskNo,
+      title: data.rows.length === 1 ? '维护要求完工日期' : '批量维护要求完工日期',
+      subtitle:
+        data.rows.length === 1
+          ? data.rows[0]?.workOrder?.workOrderNo || data.rows[0]?.taskNo
+          : `已选择 ${data.rows.length} 条任务`,
       confirmText: '更新日期',
       onOpen: () => formRef.value?.clearValidate(),
       onConfirm: async () => {
         try {
           await formRef.value?.validate()
-          await updateOperationTaskDueDate(taskId.value, model.requiredCompletionDate)
-          emit('success')
+          const result = await updateOperationTaskDueDates(
+            selectedIds.value,
+            model.requiredCompletionDate
+          )
+          emit('success', result)
           return true
         } catch {
           return false

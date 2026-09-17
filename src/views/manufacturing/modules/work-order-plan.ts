@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import { round } from 'lodash-es'
 
 export interface ProductionLeadTime {
   productionFixedLeadDays?: number | null
@@ -22,6 +23,12 @@ export function calculateProductionDays(leadTime: ProductionLeadTime): number {
     normalizeDays(leadTime.selfMadeProductionDays) +
     normalizeDays(leadTime.productionPostprocessDays)
   )
+}
+
+export function calculateOperationQuantity(orderQuantity: number, basicBatch: number): number {
+  const quantity = Math.max(0, Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0)
+  const batch = Math.max(0, Number.isFinite(Number(basicBatch)) ? Number(basicBatch) : 0)
+  return round(quantity * batch, 6)
 }
 
 export function calculatePlanFromStart(

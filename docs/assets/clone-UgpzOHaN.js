@@ -1,0 +1,1 @@
+import{t as e}from"./_baseClone-BOGi68O3.js";var t=4;function n(n){return e(n,t)}export{n as t};

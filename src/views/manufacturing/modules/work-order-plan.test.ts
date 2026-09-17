@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  calculateOperationQuantity,
   calculatePlanFromEnd,
   calculatePlanFromStart,
   calculateProductionDays
 } from './work-order-plan'
+
+test('operation quantity multiplies the work-order quantity by the route basic batch', () => {
+  assert.equal(calculateOperationQuantity(8, 1.25), 10)
+})
 
 test('production days sum the four material production lead-time fields', () => {
   assert.equal(

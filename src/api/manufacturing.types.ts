@@ -14,6 +14,30 @@ export interface MesReferenceOption {
   unit?: string
 }
 
+export interface MesProductionDepartment {
+  id: string
+  tenantId: string
+  parentId: string | null
+  name: string
+  code: string
+  enabled: boolean
+  sort: number
+}
+
+export interface MesProductionScopeCenter {
+  id: string
+  tenantId: string
+  departmentId: string
+  code: string
+  name: string
+  sort: number
+}
+
+export interface MesProductionScope {
+  departments: MesProductionDepartment[]
+  workCenters: MesProductionScopeCenter[]
+}
+
 export interface MesMaterialOption extends MesReferenceOption {
   tenantId: string
   drawingNo?: string
@@ -70,6 +94,7 @@ export interface MesWorkOrderRouteStepSnapshot {
   id: string
   code: string
   name: string
+  operationCode: string
   sort: number
   sequenceNo: number
   sequenceType: string
@@ -85,8 +110,14 @@ export interface MesWorkOrderRouteStepSnapshot {
   runProcessingMinutes: number
   runGreenMinutes: number | null
   setupMinutes: number
+  queueMinutes: number
+  transferMinutes: number
+  minimumTransferQuantity: number
+  overlapEnabled: boolean
   operatorCount: number
   machineCount: number
+  controlCode: string
+  controlCodeName: string
   operationMode: string
   processingMode: string
   reportMode: string
@@ -181,6 +212,7 @@ export interface MesWorkOrder {
   closedAt: string | null
   deletedAt: string | null
   updateTime: string
+  createBy: string
 }
 
 export type MesWorkOrderInput = Pick<
@@ -369,7 +401,11 @@ export interface MesListQuery {
   operationStatus?: string | string[]
   includeDeleted?: boolean
   plannedDates?: [string, string]
+  workOrderStartDates?: [string, string]
   workCenterId?: string
+  departmentIds?: string[]
+  sortBy?: 'sequenceNo' | 'operationCode' | 'workOrderNo' | 'taskNo'
+  sortOrder?: 'ascending' | 'descending'
 }
 
 export interface MesBatchFailure {
