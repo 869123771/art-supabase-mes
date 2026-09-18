@@ -6,9 +6,14 @@ import type {
   MesListQuery,
   MesBatchResult,
   MesAutoScheduleResult,
+  MesGanttCalendarDay,
   MesMaterialOption,
   MesMaterialOptionQuery,
   MesOperationTask,
+  MesOperationTaskAllocationInput,
+  MesOperationTaskAllocationResult,
+  MesOperationTaskShiftPlanInput,
+  MesOperationTaskShiftPlanResult,
   MesOperationTaskScheduleInput,
   MesProductionDepartment,
   MesProductionScope,
@@ -17,6 +22,7 @@ import type {
   MesReferences,
   MesSchedulingRule,
   MesSchedulingRuleInput,
+  MesSchedulingContext,
   MesWorkOrder,
   MesWorkOrderInput
 } from './manufacturing.types'
@@ -196,7 +202,7 @@ export async function fetchOperationTasks(
   let query = supabase
     .from('mes_operation_task')
     .select(
-      '*,workOrder:mes_work_order!mes_operation_task_order_fk!inner(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name)',
+      '*,workOrder:mes_work_order!mes_operation_task_order_fk!inner(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code,route_snapshot),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name),allocations:mes_operation_task_allocation(id,task_id,work_center_id,shift_schedule_id,shift_index,shift_name_snapshot,quantity,planned_start_date,planned_end_date,status)',
       { count: 'exact' }
     )
     .range((params.current - 1) * params.size, params.current * params.size - 1)
@@ -263,6 +269,114 @@ export async function scheduleOperationTask(input: MesOperationTaskScheduleInput
     { ...writeOptions, requireAffected: false, message: '排程已更新' }
   )
   return data
+}
+
+export async function confirmOperationTaskSchedule(
+  input: MesOperationTaskScheduleInput & { quantity: number; shiftScheduleId?: string | null },
+  options?: { showMessage?: boolean }
+) {
+  const { data } = await responseHandle<MesOperationTaskAllocationResult>(
+    () =>
+      supabase.rpc('mes_confirm_operation_task_schedule', {
+        p_id: input.id,
+        p_work_center_id: input.workCenterId,
+        p_quantity: input.quantity,
+        p_planned_start_date: input.plannedStartDate,
+        p_planned_end_date: input.plannedEndDate,
+        p_shift_schedule_id: input.shiftScheduleId || null
+      }),
+    {
+      ...writeOptions,
+      requireAffected: false,
+      showMessage: options?.showMessage ?? true,
+      message: '排产已确认'
+    }
+  )
+  return data
+}
+
+export async function allocateOperationTask(input: {
+  id: string
+  allocations: MesOperationTaskAllocationInput[]
+  plannedStartDate: string
+  plannedEndDate: string
+  shiftScheduleId?: string | null
+}) {
+  const { data } = await responseHandle<MesOperationTaskAllocationResult>(
+    () =>
+      supabase.rpc('mes_allocate_operation_task', {
+        p_id: input.id,
+        p_allocations: input.allocations,
+        p_planned_start_date: input.plannedStartDate,
+        p_planned_end_date: input.plannedEndDate,
+        p_shift_schedule_id: input.shiftScheduleId || null
+      }),
+    { ...writeOptions, requireAffected: false, message: '多工作中心排产已保存' }
+  )
+  return data
+}
+
+export async function fetchSchedulingContext(): Promise<MesSchedulingContext> {
+  const { data } = await responseHandle<MesSchedulingContext>(
+    () => supabase.rpc('mes_scheduling_context'),
+    readOptions
+  )
+  return data ?? { shifts: [] }
+}
+
+export async function fetchGanttCalendar(
+  startDate: string,
+  endDate: string
+): Promise<MesGanttCalendarDay[]> {
+  const { data } = await responseHandle<MesGanttCalendarDay[]>(
+    () =>
+      supabase.rpc('mes_gantt_calendar_v2', {
+        p_start_date: startDate,
+        p_end_date: endDate
+      }),
+    readOptions
+  )
+  return data ?? []
+}
+
+export async function replaceOperationTaskShiftPlan(
+  input: MesOperationTaskShiftPlanInput
+): Promise<MesOperationTaskShiftPlanResult> {
+  const { data } = await responseHandle<MesOperationTaskShiftPlanResult>(
+    () =>
+      supabase.rpc('mes_replace_operation_task_shift_plan_v2', {
+        p_id: input.id,
+        p_work_center_id: input.workCenterId,
+        p_expected_version: input.expectedVersion,
+        p_keep_assignment: input.keepAssignment,
+        p_items: input.items
+      }),
+    { ...writeOptions, requireAffected: false, message: '班次排产已更新' }
+  )
+  if (!data) throw new Error('班次排产未返回结果')
+  return data
+}
+
+export function subscribeMesSchedulingChanges(
+  tenantId: string | null | undefined,
+  onChange: () => void
+): () => void {
+  const channel = supabase.channel(`mes-scheduling-${tenantId || 'all'}-${crypto.randomUUID()}`)
+  const tables = ['mes_operation_task', 'mes_operation_task_allocation', 'mes_work_order'] as const
+  tables.forEach((table) => {
+    channel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table,
+        ...(tenantId ? { filter: `tenant_id=eq.${tenantId}` } : {})
+      },
+      onChange
+    )
+  })
+  channel.subscribe()
+  return () => void supabase.removeChannel(channel)
 }
 
 export async function fetchSchedulingRules(tenantId?: string | null) {
@@ -392,7 +506,9 @@ export async function fetchOperationTaskScope(
     fetchAllRangePages<MesProductionScopeCenter>(({ from, to }) => {
       let query = supabase
         .from('mdm_work_center')
-        .select('id,tenant_id,department_id,code,name,sort')
+        .select(
+          'id,tenant_id,department_id,code,name,sort,headcount,daily_capacity_minutes,efficiency_percent,utilization_percent,parallel_capacity'
+        )
         .order('sort')
         .order('code')
       if (tenantId) query = query.eq('tenant_id', tenantId)

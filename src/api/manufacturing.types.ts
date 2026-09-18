@@ -31,11 +31,30 @@ export interface MesProductionScopeCenter {
   code: string
   name: string
   sort: number
+  headcount: number
+  dailyCapacityMinutes: number
+  efficiencyPercent: number
+  utilizationPercent: number
+  parallelCapacity: number
 }
 
 export interface MesProductionScope {
   departments: MesProductionDepartment[]
   workCenters: MesProductionScopeCenter[]
+}
+
+export interface MesSchedulingShift {
+  id: string
+  tenantId: string
+  departmentId: string
+  name: string
+  startTime: string
+  endTime: string
+  durationMinutes: number
+}
+
+export interface MesSchedulingContext {
+  shifts: MesSchedulingShift[]
 }
 
 export interface MesMaterialOption extends MesReferenceOption {
@@ -303,6 +322,7 @@ export interface MesOperationTask {
   closedAt: string | null
   deletedAt: string | null
   updateTime: string
+  allocations?: MesOperationTaskAllocation[]
   workOrder?: Pick<
     MesWorkOrder,
     | 'workOrderNo'
@@ -323,9 +343,75 @@ export interface MesOperationTask {
     | 'followNo'
     | 'salesOrderNo'
     | 'customerCode'
-  >
+  > & { routeSnapshot?: MesWorkOrder['routeSnapshot'] }
   department?: Pick<MesReferenceOption, 'code' | 'name'>
   workCenter?: Pick<MesReferenceOption, 'code' | 'name'>
+}
+
+export interface MesOperationTaskAllocation {
+  id: string
+  taskId: string
+  workCenterId: string
+  shiftScheduleId: string | null
+  shiftIndex: number | null
+  shiftNameSnapshot: string | null
+  quantity: number
+  plannedStartDate: string
+  plannedEndDate: string
+  status: 'scheduled' | 'processing' | 'completed' | 'closed'
+}
+
+export interface MesGanttCalendarShift {
+  index: number
+  name: string
+  startTime: string
+  endTime: string
+  workMinutes: number
+}
+
+export interface MesGanttCalendarDay {
+  departmentId: string
+  workDate: string
+  patternId: string
+  patternName: string
+  shifts: MesGanttCalendarShift[]
+}
+
+export interface MesOperationTaskShiftPlanItem {
+  workDate: string
+  shiftIndex: number
+  shiftName: string
+  quantity: number
+}
+
+export interface MesOperationTaskShiftPlanInput {
+  id: string
+  workCenterId: string
+  expectedVersion: number
+  keepAssignment: boolean
+  items: MesOperationTaskShiftPlanItem[]
+}
+
+export interface MesOperationTaskShiftPlanResult {
+  id: string
+  schedulingStatus: OperationSchedulingStatus
+  scheduledQuantity: number
+  pendingScheduleQuantity: number
+  allocationCount: number
+  scheduleVersion: number
+}
+
+export interface MesOperationTaskAllocationInput {
+  workCenterId: string
+  quantity: number
+}
+
+export interface MesOperationTaskAllocationResult {
+  id: string
+  schedulingStatus: 'scheduled'
+  scheduledQuantity: number
+  pendingScheduleQuantity: number
+  allocationCount: number
 }
 
 export interface MesOperationTaskScheduleInput {

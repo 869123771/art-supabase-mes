@@ -144,6 +144,7 @@
     gap: var(--art-space-3);
     min-width: 0;
   }
+
   .auto-schedule__control {
     display: flex;
     gap: var(--art-space-3);
@@ -152,16 +153,19 @@
     background: var(--art-gray-100);
     border-radius: var(--art-control-radius);
   }
+
   .auto-schedule__control > div {
     display: grid;
     flex: 1;
     gap: 6px;
     min-width: 220px;
   }
+
   .auto-schedule__control label {
     font-size: 12px;
     color: var(--el-text-color-secondary);
   }
+
   .auto-schedule__summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -171,22 +175,26 @@
     border: 1px solid var(--el-border-color-lighter);
     border-radius: var(--art-control-radius);
   }
+
   .auto-schedule__summary span {
     padding: 10px 12px;
-    background: var(--default-box-color);
     font-size: 12px;
     color: var(--el-text-color-secondary);
+    background: var(--default-box-color);
   }
+
   .auto-schedule__summary strong {
     margin-right: 4px;
-    color: var(--el-text-color-primary);
     font-size: 16px;
+    color: var(--el-text-color-primary);
   }
+
   @media (width <= 768px) {
     .auto-schedule__control {
-      align-items: stretch;
       flex-direction: column;
+      align-items: stretch;
     }
+
     .auto-schedule__summary {
       grid-template-columns: repeat(2, 1fr);
     }

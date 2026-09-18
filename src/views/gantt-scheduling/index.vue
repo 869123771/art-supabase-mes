@@ -1,15 +1,15 @@
 <template>
-  <ArtPermissionGuard permission="MesSchedulingGantt:View" resource-name="甘特图排产">
+  <ArtPermissionGuard permission="MesScheduling:View" resource-name="甘特图排产">
     <div
       class="gantt-page business-workspace-page art-full-height"
-      :class="{ 'is-focus-mode': focusMode }"
+      :class="{ 'is-focus-mode': focusMode, 'is-scope-collapsed': scope.collapsed }"
     >
       <BusinessWorkspaceHeader
         v-show="!focusMode"
-        eyebrow="SCHEDULE TIMELINE"
+        eyebrow="SHIFT SCHEDULING"
         title="甘特图排产"
-        description="按工作中心展开工序计划时间轴，集中识别资源冲突、延期风险与未分配任务。"
-        icon="ri:bar-chart-horizontal-line"
+        description="按车间与工作中心，把工序任务量化到每日班次，并在产能边界内完成可视化微调。"
+        icon="ri:calendar-schedule-line"
         :tags="workspaceTags"
         :metrics="metrics"
         density="compact"
@@ -22,437 +22,743 @@
         </template>
       </BusinessWorkspaceHeader>
 
-      <ArtSectionCard
-        class="gantt-page__board business-workspace-content"
-        title="资源负荷时间轴"
-        :subtitle="`${rangeLabel} · 共 ${visibleTasks.length} 道工序`"
-        :loading="state.loading"
-        :error="state.error"
-        :empty="!state.loading && !state.error && !visibleTasks.length"
-        empty-title="当前筛选范围暂无排程"
-        empty-description="先确认生产工单以生成工序任务，再到排产页分配工作中心和计划日期；条件变更后本页会自动重新查询。"
-        :min-height="0"
-        body-class="gantt-page__board-body"
-        retryable
-        @retry="loadWorkspace"
-      >
-        <template #actions>
-          <div class="gantt-page__filters">
-            <BusinessWorkspaceFocusToggle v-if="focusMode" v-model="focusMode" />
-            <span class="gantt-page__refresh-state" role="status" aria-live="polite">
-              <ArtSvgIcon :icon="state.loading ? 'ri:loader-4-line' : 'ri:refresh-line'" />
-              {{ state.loading ? '正在刷新' : `自动刷新 · ${state.lastLoadedAt || '待加载'}` }}
-            </span>
-            <ElSelect
-              v-model="filters.workCenterId"
-              clearable
-              filterable
-              placeholder="全部工作中心"
-              aria-label="筛选工作中心"
-            >
-              <ElOption
-                v-for="center in state.workCenters"
-                :key="center.id"
-                :label="`${center.name} · ${center.code}`"
-                :value="center.id"
+      <div class="gantt-page__workspace business-workspace-content">
+        <ProductionWorkCenterNavigator
+          v-if="!scope.collapsed"
+          class="gantt-page__scope"
+          :workshops="workshopOptions"
+          :work-centers="workCentersForWorkshop"
+          :selected-workshop-id="scope.selectedWorkshopId"
+          :selected-work-center-id="scope.selectedWorkCenterId"
+          :loading="state.scopeLoading"
+          :error="state.scopeError"
+          collapsible
+          allow-all-workshops
+          show-all-work-centers
+          select-id="gantt-production-scope"
+          @refresh="loadProductionScope"
+          @collapse="scope.collapsed = true"
+          @select-workshop="selectWorkshop"
+          @select-work-center="selectWorkCenter"
+        />
+
+        <ArtSectionCard
+          class="gantt-page__board"
+          title="班次排产工作台"
+          :subtitle="`${rangeLabel} · ${visibleTasks.length} 道工序 · ${visibleGroups.length} 个工作中心`"
+          :loading="state.loading"
+          :error="state.error"
+          :empty="!state.loading && !state.error && !visibleTasks.length"
+          empty-title="当前范围暂无工序任务"
+          empty-description="请切换车间、工作中心或计划期间；已确认并分配到工作中心的工序任务会显示在此处。"
+          :min-height="0"
+          body-class="gantt-page__board-body"
+          retryable
+          @retry="loadWorkspace"
+        >
+          <template #actions>
+            <ArtTooltip v-if="scope.collapsed" content="展开生产范围" placement="bottom">
+              <ArtIconButton
+                icon="ri:side-bar-line"
+                label="展开生产范围"
+                @click="scope.collapsed = false"
               />
-            </ElSelect>
-            <ElDatePicker
-              v-model="filters.range"
-              type="daterange"
-              value-format="YYYY-MM-DD"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              unlink-panels
-              :clearable="false"
-              aria-label="甘特图日期范围"
-            />
-            <ElSegmented
-              v-model="filters.span"
-              :options="spanOptions"
-              size="small"
-              aria-label="时间轴跨度"
-              @change="applySpan"
-            />
-            <ElButton class="gantt-page__today-button" @click="focusToday">
-              <ArtSvgIcon icon="ri:focus-3-line" />
-              回到今天
-            </ElButton>
-          </div>
-        </template>
+            </ArtTooltip>
+            <BusinessWorkspaceFocusToggle v-if="focusMode" v-model="focusMode" />
+            <ArtTooltip content="刷新排产数据" placement="bottom">
+              <ArtIconButton
+                icon="ri:refresh-line"
+                label="刷新排产数据"
+                :loading="state.loading"
+                @click="loadWorkspace"
+              />
+            </ArtTooltip>
+          </template>
 
-        <template #empty-action>
-          <ElButton type="primary" @click="goToScheduling">前往排产</ElButton>
-          <ElButton :loading="state.loading" @click="loadWorkspace">刷新数据</ElButton>
-        </template>
+          <template #empty-action>
+            <ElButton type="primary" @click="goToTaskAssignment">前往待排产工单分配</ElButton>
+            <ElButton @click="resetFilters">清除筛选</ElButton>
+          </template>
 
-        <template v-if="visibleTasks.length">
-          <div class="gantt-page__legend" aria-label="排程状态图例">
-            <strong>状态图例</strong>
-            <span><i class="is-scheduled" />已排程</span>
-            <span><i class="is-processing" />加工中</span>
-            <span><i class="is-warning" />待排 / 逾期</span>
-            <span><i class="is-danger" />资源冲突</span>
-            <small>拖动底部滚动条浏览日期；点击任务条可排程或查看详情</small>
-          </div>
+          <template v-if="visibleTasks.length">
+            <div class="gantt-page__filters art-card-xs">
+              <ElInput
+                v-model="filters.keyword"
+                clearable
+                placeholder="工单号 / 物料名称 / 规格型号 / 项目名称"
+                aria-label="组合模糊查询"
+              >
+                <template #prefix><ArtSvgIcon icon="ri:search-line" /></template>
+              </ElInput>
 
-          <ElScrollbar ref="timelineViewport" class="gantt-page__viewport" always>
-            <div class="gantt-page__timeline" :style="timelineStyle">
-              <div class="gantt-page__corner">
-                <strong>工作中心 / 工序</strong>
-                <small>按计划开始时间排序</small>
-              </div>
-              <div class="gantt-page__days">
-                <div
-                  v-for="day in timelineDays"
-                  :key="day.date"
-                  class="gantt-page__day"
-                  :class="{ 'is-today': day.isToday, 'is-weekend': day.isWeekend }"
-                >
-                  <strong>{{ day.label }}</strong>
-                  <small>{{ day.weekday }}</small>
-                </div>
-              </div>
+              <label class="gantt-page__filter-field">
+                <span>计划期间</span>
+                <ElSelect v-model="filters.periodPreset" @change="applyPeriodPreset">
+                  <ElOption label="未来 7 天" value="7" />
+                  <ElOption label="未来 14 天" value="14" />
+                  <ElOption label="未来 30 天" value="30" />
+                  <ElOption label="自定义" value="custom" />
+                </ElSelect>
+              </label>
 
-              <template v-for="(task, index) in visibleTasks" :key="task.id">
-                <div
-                  class="gantt-page__task-info"
-                  :class="{ 'is-group-start': isGroupStart(index) }"
-                  :style="rowStyle(index)"
-                >
-                  <span class="gantt-page__task-meta">
-                    <span class="gantt-page__center">
-                      <i :class="`is-${riskFor(task)}`" />
-                      {{ workCenterLabel(task.workCenterId) }}
-                    </span>
-                    <small :class="`is-${riskFor(task)}`">{{
-                      scheduleRiskLabel(riskFor(task))
-                    }}</small>
-                  </span>
-                  <span class="gantt-page__task-name">
-                    <strong :title="task.operationName">{{ task.operationName }}</strong>
-                    <b>{{ task.sequenceNo }}</b>
-                  </span>
-                  <small :title="task.workOrder?.workOrderNo">
-                    {{ task.workOrder?.workOrderNo || '未关联工单' }} · {{ task.operationCode }}
-                  </small>
-                </div>
-                <div
-                  class="gantt-page__lane"
-                  :class="{ 'is-group-start': isGroupStart(index) }"
-                  :style="rowStyle(index)"
-                >
-                  <span
-                    v-for="day in timelineDays"
-                    :key="day.date"
-                    class="gantt-page__grid-cell"
-                    :class="{ 'is-today': day.isToday, 'is-weekend': day.isWeekend }"
+              <ElDatePicker
+                v-if="filters.periodPreset === 'custom'"
+                v-model="filters.range"
+                type="daterange"
+                value-format="YYYY-MM-DD"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                unlink-panels
+                :clearable="false"
+                aria-label="自定义计划期间"
+              />
+
+              <label class="gantt-page__filter-field">
+                <span>排产模式</span>
+                <ElSegmented
+                  v-model="filters.direction"
+                  :options="directionOptions"
+                  size="small"
+                  aria-label="排产模式"
+                />
+              </label>
+
+              <ElCheckboxGroup v-model="filters.completionStatuses" aria-label="任务完成状态">
+                <ElCheckbox value="unfinished">未完成</ElCheckbox>
+                <ElCheckbox value="partial">部分完成</ElCheckbox>
+                <ElCheckbox value="completed">已完成</ElCheckbox>
+              </ElCheckboxGroup>
+
+              <ElCheckbox v-model="filters.showQuantities">显示数量</ElCheckbox>
+
+              <div class="gantt-page__period-actions">
+                <ArtTooltip content="上一计划期间" placement="bottom">
+                  <ArtIconButton
+                    icon="ri:arrow-left-s-line"
+                    label="上一计划期间"
+                    @click="shiftPeriod(-1)"
                   />
-                  <ArtTooltip :content="taskTooltip(task)" placement="top" :show-after="300">
-                    <button
-                      type="button"
-                      class="gantt-page__bar"
-                      :class="[`is-${task.status}`, `is-${riskFor(task)}`]"
-                      :style="barStyle(task)"
-                      :aria-label="`${task.operationName}，${taskTooltip(task)}`"
-                      @click="openTask(task)"
-                    >
-                      <span>{{ task.operationName }}</span>
-                      <small>{{ durationLabel(task) }}</small>
-                    </button>
-                  </ArtTooltip>
-                </div>
-              </template>
+                </ArtTooltip>
+                <ArtTooltip content="回到今天" placement="bottom">
+                  <ArtIconButton
+                    icon="ri:calendar-check-line"
+                    label="回到今天"
+                    @click="focusToday"
+                  />
+                </ArtTooltip>
+                <ArtTooltip content="下一计划期间" placement="bottom">
+                  <ArtIconButton
+                    icon="ri:arrow-right-s-line"
+                    label="下一计划期间"
+                    @click="shiftPeriod(1)"
+                  />
+                </ArtTooltip>
+              </div>
             </div>
-          </ElScrollbar>
-        </template>
-      </ArtSectionCard>
 
-      <ScheduleDialog ref="scheduleDialogRef" @success="loadWorkspace" />
-      <TaskDetailDialog ref="taskDetailDialogRef" />
+            <div class="gantt-page__legend" aria-label="排产状态与完工图示">
+              <div class="gantt-page__legend-group">
+                <strong>任务状态</strong>
+                <span><i class="is-processing" />生产中</span>
+                <span><i class="is-adjusting" />调整中</span>
+                <span><i class="is-pending" />待生产</span>
+                <span><i class="is-over-capacity" />超产能</span>
+              </div>
+              <div class="gantt-page__legend-group">
+                <strong>完工图示</strong>
+                <span class="is-achieved"><ArtSvgIcon icon="ri:check-line" />达产</span>
+                <span class="is-shortfall"><ArtSvgIcon icon="ri:subtract-line" />欠产</span>
+                <span class="is-excess"><ArtSvgIcon icon="ri:add-line" />超产</span>
+              </div>
+              <small>双击班次录入数量，拖动已排班次可微调计划</small>
+            </div>
+
+            <ElScrollbar class="gantt-page__viewport" always>
+              <GanttScheduleBoard
+                :groups="visibleGroups"
+                :dates="timelineDates"
+                :calendar-days="state.calendarDays"
+                :show-quantities="filters.showQuantities"
+                :can-schedule="hasAuth('MesOperationTask:Schedule')"
+                :can-auto-schedule="
+                  hasAuth('MesOperationTask:Schedule') && hasAuth('MesScheduling:AutoSchedule')
+                "
+                @edit-cell="openCellPlan"
+                @move-allocation="moveAllocation"
+                @action="handleTaskAction"
+              />
+            </ElScrollbar>
+          </template>
+        </ArtSectionCard>
+      </div>
+
+      <ShiftPlanDialog ref="shiftPlanDialogRef" @success="loadWorkspace" />
     </div>
   </ArtPermissionGuard>
 </template>
 
 <script setup lang="ts">
   import dayjs from 'dayjs'
-  import { computed, nextTick, reactive, ref, watch, type CSSProperties } from 'vue'
+  import { computed, reactive, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { storeToRefs } from 'pinia'
-  import type { ScrollbarInstance } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
+  import ArtIconButton from '@/components/core/widget/art-icon-button/index.vue'
   import ArtPermissionGuard from '@/components/core/feedback/art-permission-guard/index.vue'
-  import ArtTooltip from '@/components/core/feedback/art-tooltip/index.vue'
   import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
   import BusinessWorkspaceFocusToggle from '@/components/business/business-workspace-focus-toggle/index.vue'
   import BusinessWorkspaceHeader, {
     type BusinessWorkspaceMetric,
     type BusinessWorkspaceTag
   } from '@/components/business/business-workspace-header/index.vue'
+  import ProductionWorkCenterNavigator, {
+    type ProductionScopeWorkshopOption
+  } from '@/components/business/production-work-center-navigator/index.vue'
   import { useAuth } from '@/hooks/core/useAuth'
   import { useWorkspaceFocus } from '@/hooks/core/useWorkspaceFocus'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
+  import TreeUtils from '@/utils/tree'
   import {
-    fetchMesReferences,
+    fetchGanttCalendar,
+    fetchOperationTaskScope,
     fetchOperationTasks,
+    replaceOperationTaskShiftPlan,
+    transitionOperationTask,
+    type MesGanttCalendarDay,
     type MesOperationTask,
-    type MesReferenceOption
+    type MesOperationTaskShiftPlanItem,
+    type MesProductionDepartment,
+    type MesProductionScopeCenter,
+    type SchedulingDirection
   } from '@mes/api'
-  import ScheduleDialog, {
-    type ScheduleDialogOpenData
-  } from '../manufacturing/modules/schedule-dialog.vue'
-  import TaskDetailDialog, {
-    type TaskDetailDialogOpenData
-  } from '../manufacturing/modules/task-detail-dialog.vue'
+  import GanttScheduleBoard, { type GanttWorkCenterGroup } from './modules/gantt-schedule-board.vue'
+  import ShiftPlanDialog, { type ShiftPlanDialogOpenData } from './modules/shift-plan-dialog.vue'
   import {
-    conflictTaskIds,
-    scheduleRisk,
-    scheduleRiskLabel,
-    taskEndDate,
-    taskStartDate,
-    type ScheduleRisk
-  } from '../scheduling/modules/schedule-policy'
+    allocationsForCenter,
+    buildCalendarDayMap,
+    buildTimelineDates,
+    createAutomaticShiftPlan,
+    taskQuantitySummary,
+    taskTone,
+    type GanttShiftSlot
+  } from './modules/gantt-schedule-policy'
 
   defineOptions({ name: 'MesSchedulingGantt' })
+
   const declaredPermissions = [
     'MesSchedulingGantt:View',
+    'MesScheduling:View',
+    'MesScheduling:AutoSchedule',
     'MesOperationTask:Schedule',
-    'MesOperationTask:View'
+    'MesOperationTask:Close'
   ] as const
   void declaredPermissions
 
+  type CompletionStatus = 'unfinished' | 'partial' | 'completed'
+
+  interface PageState {
+    loading: boolean
+    scopeLoading: boolean
+    error: string
+    scopeError: string
+    tasks: MesOperationTask[]
+    departments: MesProductionDepartment[]
+    workCenters: MesProductionScopeCenter[]
+    calendarDays: MesGanttCalendarDay[]
+  }
+
+  interface ScopeState {
+    collapsed: boolean
+    selectedWorkshopId: string
+    selectedWorkCenterId: string
+  }
+
+  interface FilterState {
+    keyword: string
+    periodPreset: '7' | '14' | '30' | 'custom'
+    range: [string, string]
+    direction: SchedulingDirection
+    completionStatuses: CompletionStatus[]
+    showQuantities: boolean
+  }
+
+  const router = useRouter()
   const { hasAuth } = useAuth()
   const { focusMode } = useWorkspaceFocus()
-  const router = useRouter()
   const tenantScopeStore = useTenantScopeStore()
-  const { effectiveTenantId } = storeToRefs(tenantScopeStore)
-  const scheduleDialogRef = ref<{ handleOpen: (data: ScheduleDialogOpenData) => Promise<void> }>()
-  const taskDetailDialogRef = ref<{
-    handleOpen: (data: TaskDetailDialogOpenData) => Promise<void>
-  }>()
-  const timelineViewport = ref<ScrollbarInstance>()
-  const state = reactive({
+  const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
+  const productionTree = new TreeUtils({ deepClone: false })
+  const shiftPlanDialogRef = ref<{ handleOpen: (data: ShiftPlanDialogOpenData) => Promise<void> }>()
+  const state = reactive<PageState>({
     loading: false,
+    scopeLoading: false,
     error: '',
-    lastLoadedAt: '',
-    tasks: [] as MesOperationTask[],
-    workCenters: [] as MesReferenceOption[]
+    scopeError: '',
+    tasks: [],
+    departments: [],
+    workCenters: [],
+    calendarDays: []
   })
-  const filters = reactive({
-    range: [
-      dayjs().subtract(2, 'day').format('YYYY-MM-DD'),
-      dayjs().add(11, 'day').format('YYYY-MM-DD')
-    ] as [string, string],
-    span: 14,
-    workCenterId: ''
+  const scope = reactive<ScopeState>({
+    collapsed: false,
+    selectedWorkshopId: '',
+    selectedWorkCenterId: ''
   })
-  const spanOptions = [
-    { label: '7 天', value: 7 },
-    { label: '14 天', value: 14 },
-    { label: '30 天', value: 30 }
+  const filters = reactive<FilterState>({
+    keyword: '',
+    periodPreset: '7',
+    range: [dayjs().format('YYYY-MM-DD'), dayjs().add(6, 'day').format('YYYY-MM-DD')],
+    direction: 'forward',
+    completionStatuses: ['unfinished', 'partial', 'completed'],
+    showQuantities: false
+  })
+  const directionOptions = [
+    { label: '顺排', value: 'forward' },
+    { label: '倒排', value: 'backward' }
   ]
   const workspaceTags: BusinessWorkspaceTag[] = [
-    { label: '工作中心负荷', type: 'primary' },
-    { label: '冲突识别', type: 'danger' },
-    { label: '计划联动', type: 'success' }
+    { label: '车间级联', type: 'primary' },
+    { label: '班次产能', type: 'warning' },
+    { label: '拖拽微调', type: 'success' }
   ]
-  const conflicts = computed(() => conflictTaskIds(state.tasks))
-  const timelineDays = computed(() => {
-    const start = dayjs(filters.range[0])
-    const count = Math.max(dayjs(filters.range[1]).diff(start, 'day') + 1, 1)
-    return Array.from({ length: count }, (_, index) => {
-      const date = start.add(index, 'day')
-      return {
-        date: date.format('YYYY-MM-DD'),
-        label: date.format('MM/DD'),
-        weekday: `周${'日一二三四五六'[date.day()]}`,
-        isToday: date.isSame(dayjs(), 'day'),
-        isWeekend: [0, 6].includes(date.day())
-      }
-    })
+
+  const departmentTree = computed(() => productionTree.listToTree(state.departments))
+  const selectedWorkshop = computed(() =>
+    state.departments.find((department) => department.id === scope.selectedWorkshopId)
+  )
+  const descendantDepartmentIds = (departmentId: string): string[] =>
+    productionTree
+      .getDescendants(departmentTree.value, departmentId, true)
+      .map((item) => String(item.id))
+  const departmentPath = (department: MesProductionDepartment): string => {
+    const path = productionTree
+      .getAncestors(departmentTree.value, department.id)
+      .map((item) => String(item.name))
+      .join(' / ')
+    if (effectiveTenantId.value) return path || department.name
+    const tenant = tenantOptions.value.find((item) => item.id === department.tenantId)
+    return `${tenant?.tenantName || '当前租户'} / ${path || department.name}`
+  }
+  const workshopOptions = computed<ProductionScopeWorkshopOption[]>(() =>
+    state.departments
+      .filter((department) => {
+        if (!department.enabled || !department.parentId) return false
+        const departmentIds = descendantDepartmentIds(department.id)
+        return state.workCenters.some(
+          (center) =>
+            center.tenantId === department.tenantId && departmentIds.includes(center.departmentId)
+        )
+      })
+      .map((department) => ({
+        id: department.id,
+        name: department.name,
+        code: department.code,
+        path: departmentPath(department)
+      }))
+  )
+  const workCentersForWorkshop = computed(() => {
+    if (!selectedWorkshop.value) return state.workCenters
+    const departmentIds = descendantDepartmentIds(selectedWorkshop.value.id)
+    return state.workCenters.filter(
+      (center) =>
+        center.tenantId === selectedWorkshop.value?.tenantId &&
+        departmentIds.includes(center.departmentId)
+    )
   })
+  const centersInScope = computed(() =>
+    scope.selectedWorkCenterId
+      ? workCentersForWorkshop.value.filter((center) => center.id === scope.selectedWorkCenterId)
+      : workCentersForWorkshop.value
+  )
+  const centerIdSet = computed(() => new Set(centersInScope.value.map((center) => center.id)))
+  const timelineDates = computed(() =>
+    buildTimelineDates(state.calendarDays, filters.range[0], filters.range[1], [
+      ...new Set(centersInScope.value.map((center) => center.departmentId))
+    ])
+  )
+  const flatSlots = computed(() => timelineDates.value.flatMap((date) => date.shifts))
+  const calendarDayMap = computed(() => buildCalendarDayMap(state.calendarDays))
+
+  function taskCompletionStatus(task: MesOperationTask): CompletionStatus {
+    const planned = Number(task.plannedQuantity || 0)
+    const completed = Number(task.cumulativeCompletedQuantity || task.completedQuantity || 0)
+    if (
+      task.operationStatus === 'completed' ||
+      task.operationStatus === 'closed' ||
+      completed >= planned
+    ) {
+      return 'completed'
+    }
+    if (completed > 0) return 'partial'
+    return 'unfinished'
+  }
+
+  function taskMatchesKeyword(task: MesOperationTask): boolean {
+    const keyword = filters.keyword.trim().toLocaleLowerCase()
+    if (!keyword) return true
+    const order = task.workOrder
+    const matchesTask = [
+      order?.workOrderNo,
+      order?.materialNameSnapshot,
+      order?.materialCodeSnapshot,
+      order?.specificationSnapshot,
+      order?.projectNameSnapshot,
+      task.operationName,
+      task.operationCode
+    ].some((value) => value?.toLocaleLowerCase().includes(keyword))
+    if (matchesTask) return true
+    return state.workCenters.some(
+      (center) =>
+        taskBelongsToCenter(task, center.id) &&
+        [center.code, center.name].some((value) => value.toLocaleLowerCase().includes(keyword))
+    )
+  }
+
+  function taskBelongsToCenter(task: MesOperationTask, centerId: string): boolean {
+    return (
+      task.workCenterId === centerId ||
+      (task.allocations || []).some(
+        (allocation) => allocation.workCenterId === centerId && allocation.status !== 'closed'
+      )
+    )
+  }
+
   const visibleTasks = computed(() =>
-    state.tasks
-      .filter((task) => !filters.workCenterId || task.workCenterId === filters.workCenterId)
-      .filter((task) => {
-        const start = taskStartDate(task)
-        const end = taskEndDate(task)
-        if (!start || !end) return true
-        return (
-          !dayjs(end).isBefore(filters.range[0], 'day') &&
-          !dayjs(start).isAfter(filters.range[1], 'day')
+    state.tasks.filter(
+      (task) =>
+        [...centerIdSet.value].some((centerId) => taskBelongsToCenter(task, centerId)) &&
+        taskMatchesKeyword(task) &&
+        (!filters.completionStatuses.length ||
+          filters.completionStatuses.includes(taskCompletionStatus(task)))
+    )
+  )
+  const visibleGroups = computed<GanttWorkCenterGroup[]>(() =>
+    centersInScope.value.map((center) => ({
+      center,
+      tasks: visibleTasks.value
+        .filter((task) => taskBelongsToCenter(task, center.id))
+        .sort(
+          (left, right) =>
+            (left.plannedStartDate || '').localeCompare(right.plannedStartDate || '') ||
+            left.sequenceNo - right.sequenceNo
         )
-      })
-      .sort((left, right) => {
-        const centerCompare = workCenterName(left.workCenterId).localeCompare(
-          workCenterName(right.workCenterId),
-          'zh-CN'
-        )
-        if (centerCompare) return centerCompare
-        return (
-          (taskStartDate(left) || '').localeCompare(taskStartDate(right) || '') ||
-          left.sequenceNo - right.sequenceNo
-        )
-      })
+    }))
   )
   const rangeLabel = computed(() => `${filters.range[0]} 至 ${filters.range[1]}`)
-  const timelineStyle = computed<CSSProperties>(() => ({
-    '--day-count': timelineDays.value.length,
-    '--day-width': filters.span >= 30 ? '66px' : filters.span <= 7 ? '112px' : '88px',
-    '--timeline-height': `${visibleTasks.value.length * 72 + 56}px`
-  }))
   const metrics = computed<BusinessWorkspaceMetric[]>(() => {
-    const visible = visibleTasks.value
-    const overdue = visible.filter((task) => riskFor(task) === 'overdue').length
-    const unassigned = visible.filter((task) => riskFor(task) === 'unassigned').length
+    const unscheduled = visibleGroups.value.reduce(
+      (total, group) =>
+        total +
+        group.tasks.reduce(
+          (sum, task) => sum + taskQuantitySummary(task, group.center.id).unscheduled,
+          0
+        ),
+      0
+    )
+    const overCapacity = visibleGroups.value.reduce(
+      (total, group) =>
+        total +
+        group.tasks.filter(
+          (task) => taskTone(task, group.center.id, timelineDates.value) === 'over-capacity'
+        ).length,
+      0
+    )
     return [
       {
-        label: '时间轴工序',
-        value: visible.length,
+        label: '工序任务',
+        value: visibleTasks.value.length,
         description: '当前筛选范围',
         icon: 'ri:git-merge-line'
       },
       {
         label: '工作中心',
-        value: new Set(visible.map((task) => task.workCenterId).filter(Boolean)).size,
-        description: '参与当前排程',
-        icon: 'ri:building-2-line'
+        value: visibleGroups.value.length,
+        description: '当前展示范围',
+        icon: 'ri:dashboard-3-line'
       },
       {
-        label: '资源冲突',
-        value: visible.filter((task) => conflicts.value.has(task.id)).length,
-        description: '计划周期存在重叠',
+        label: '未排数量',
+        value: Number(unscheduled.toFixed(2)),
+        description: '待落到具体班次',
+        icon: 'ri:inbox-unarchive-line',
+        tone: unscheduled > 0 ? 'warning' : 'success'
+      },
+      {
+        label: '超产能任务',
+        value: overCapacity,
+        description: '超过理论班次产能',
         icon: 'ri:alarm-warning-line',
-        tone: conflicts.value.size ? 'danger' : 'success'
-      },
-      {
-        label: '计划风险',
-        value: overdue + unassigned,
-        description: `${unassigned} 待排 · ${overdue} 逾期`,
-        icon: 'ri:time-line',
-        tone: overdue + unassigned ? 'warning' : 'success'
+        tone: overCapacity ? 'danger' : 'success'
       }
     ]
   })
 
-  function applySpan(value: string | number | boolean): void {
-    const span = Number(value)
-    const start = dayjs(filters.range[0])
-    filters.range = [start.format('YYYY-MM-DD'), start.add(span - 1, 'day').format('YYYY-MM-DD')]
-    nextTick(() => timelineViewport.value?.scrollTo({ left: 0, behavior: 'smooth' }))
+  function applyPeriodPreset(value: string | number | boolean): void {
+    if (value === 'custom') return
+    const days = Number(value)
+    const start = dayjs()
+    filters.range = [start.format('YYYY-MM-DD'), start.add(days - 1, 'day').format('YYYY-MM-DD')]
+  }
+
+  function shiftPeriod(direction: -1 | 1): void {
+    const span = Math.max(dayjs(filters.range[1]).diff(filters.range[0], 'day') + 1, 1)
+    filters.range = [
+      dayjs(filters.range[0])
+        .add(direction * span, 'day')
+        .format('YYYY-MM-DD'),
+      dayjs(filters.range[1])
+        .add(direction * span, 'day')
+        .format('YYYY-MM-DD')
+    ]
+    filters.periodPreset = 'custom'
   }
 
   function focusToday(): void {
+    const days = filters.periodPreset === 'custom' ? 7 : Number(filters.periodPreset)
     const start = dayjs()
-    filters.range = [
-      start.format('YYYY-MM-DD'),
-      start.add(filters.span - 1, 'day').format('YYYY-MM-DD')
-    ]
-    nextTick(() => timelineViewport.value?.scrollTo({ left: 0, behavior: 'smooth' }))
+    filters.range = [start.format('YYYY-MM-DD'), start.add(days - 1, 'day').format('YYYY-MM-DD')]
+    if (filters.periodPreset === 'custom') filters.periodPreset = '7'
   }
 
-  function workCenterName(id: string | null): string {
-    if (!id) return '未分配工作中心'
-    return state.workCenters.find((center) => center.id === id)?.name || '未知工作中心'
+  function selectWorkshop(id: string): void {
+    scope.selectedWorkshopId = id
+    scope.selectedWorkCenterId = ''
   }
 
-  function workCenterLabel(id: string | null): string {
-    if (!id) return '未分配工作中心'
-    const center = state.workCenters.find((item) => item.id === id)
-    return center ? `${center.name} · ${center.code}` : '未知工作中心'
+  function selectWorkCenter(id: string): void {
+    scope.selectedWorkCenterId = id
   }
 
-  function isGroupStart(index: number): boolean {
-    if (index === 0) return true
-    return (
-      workCenterName(visibleTasks.value[index]?.workCenterId ?? null) !==
-      workCenterName(visibleTasks.value[index - 1]?.workCenterId ?? null)
+  function resetFilters(): void {
+    Object.assign(filters, {
+      keyword: '',
+      periodPreset: '7',
+      range: [dayjs().format('YYYY-MM-DD'), dayjs().add(6, 'day').format('YYYY-MM-DD')],
+      direction: 'forward',
+      completionStatuses: ['unfinished', 'partial', 'completed'],
+      showQuantities: false
+    })
+    Object.assign(scope, { selectedWorkshopId: '', selectedWorkCenterId: '' })
+  }
+
+  function planForCenter(
+    task: MesOperationTask,
+    centerId: string
+  ): MesOperationTaskShiftPlanItem[] {
+    return allocationsForCenter(task, centerId)
+      .filter((allocation) => allocation.shiftIndex)
+      .map((allocation) => ({
+        workDate: allocation.plannedStartDate,
+        shiftIndex: Number(allocation.shiftIndex),
+        shiftName: allocation.shiftNameSnapshot || `第 ${allocation.shiftIndex} 班`,
+        quantity: Number(allocation.quantity)
+      }))
+  }
+
+  function availableSlots(center: MesProductionScopeCenter): GanttShiftSlot[] {
+    return flatSlots.value.filter(
+      (slot) =>
+        slot.index > 0 &&
+        calendarDayMap.value
+          .get(`${center.departmentId}:${slot.workDate}`)
+          ?.shifts.some((shift) => shift.index === slot.index)
     )
   }
 
-  function riskFor(task: MesOperationTask): ScheduleRisk {
-    return scheduleRisk(task, conflicts.value)
+  function openCellPlan(
+    task: MesOperationTask,
+    center: MesProductionScopeCenter,
+    slot: GanttShiftSlot
+  ): void {
+    void shiftPlanDialogRef.value?.handleOpen({
+      mode: 'cell',
+      task,
+      workCenterId: center.id,
+      currentPlan: planForCenter(task, center.id),
+      assignedQuantity: taskQuantitySummary(task, center.id).assigned,
+      availableSlots: availableSlots(center),
+      targetSlot: slot
+    })
   }
 
-  function rowStyle(index: number): CSSProperties {
-    return { gridRow: `${index + 2}` }
+  async function replacePlan(
+    task: MesOperationTask,
+    center: MesProductionScopeCenter,
+    items: MesOperationTaskShiftPlanItem[],
+    keepAssignment = true
+  ): Promise<void> {
+    await replaceOperationTaskShiftPlan({
+      id: task.id,
+      workCenterId: center.id,
+      expectedVersion: task.scheduleVersion,
+      keepAssignment,
+      items
+    })
+    await loadWorkspace()
   }
 
-  function barStyle(task: MesOperationTask): CSSProperties {
-    const rangeStart = dayjs(filters.range[0])
-    const rangeEnd = dayjs(filters.range[1])
-    const startValue = taskStartDate(task)
-    const endValue = taskEndDate(task)
-    const start = startValue ? dayjs(startValue) : rangeStart
-    const end = endValue ? dayjs(endValue) : start
-    const clippedStart = start.isBefore(rangeStart, 'day') ? rangeStart : start
-    const clippedEnd = end.isAfter(rangeEnd, 'day') ? rangeEnd : end
-    const total = Math.max(timelineDays.value.length, 1)
-    const offset = Math.max(clippedStart.diff(rangeStart, 'day'), 0)
-    const duration = Math.max(clippedEnd.diff(clippedStart, 'day') + 1, 1)
-    return {
-      left: `calc(${(offset / total) * 100}% + 4px)`,
-      width: `calc(${(duration / total) * 100}% - 8px)`
+  async function moveAllocation(
+    task: MesOperationTask,
+    center: MesProductionScopeCenter,
+    source: GanttShiftSlot,
+    target: GanttShiftSlot
+  ): Promise<void> {
+    const plan = planForCenter(task, center.id)
+    const sourceIndex = plan.findIndex(
+      (item) => item.workDate === source.workDate && item.shiftIndex === source.index
+    )
+    if (sourceIndex < 0) return
+    const sourceItem = plan[sourceIndex]!
+    plan.splice(sourceIndex, 1)
+    const targetItem = plan.find(
+      (item) => item.workDate === target.workDate && item.shiftIndex === target.index
+    )
+    if (targetItem)
+      targetItem.quantity = Number((targetItem.quantity + sourceItem.quantity).toFixed(2))
+    else {
+      plan.push({
+        workDate: target.workDate,
+        shiftIndex: target.index,
+        shiftName: target.name,
+        quantity: sourceItem.quantity
+      })
+    }
+    try {
+      await replacePlan(task, center, plan)
+    } catch {
+      await loadWorkspace()
     }
   }
 
-  function durationLabel(task: MesOperationTask): string {
-    const start = taskStartDate(task)
-    const end = taskEndDate(task)
-    if (!start || !end) return '日期待定'
-    return `${dayjs(end).diff(start, 'day') + 1} 天`
-  }
-
-  function taskTooltip(task: MesOperationTask): string {
-    return `${workCenterName(task.workCenterId)} · ${taskStartDate(task) || '待定'} 至 ${taskEndDate(task) || '待定'} · ${scheduleRiskLabel(riskFor(task))}`
-  }
-
-  function openTask(row: MesOperationTask): void {
-    if (
-      ['pending', 'scheduled'].includes(row.schedulingStatus) &&
-      hasAuth('MesOperationTask:Schedule')
-    ) {
-      void scheduleDialogRef.value?.handleOpen({ row, workCenters: state.workCenters })
+  async function handleTaskAction(
+    task: MesOperationTask,
+    center: MesProductionScopeCenter,
+    key: string
+  ): Promise<void> {
+    if (key === 'specified') {
+      await shiftPlanDialogRef.value?.handleOpen({
+        mode: 'specified',
+        task,
+        workCenterId: center.id,
+        currentPlan: planForCenter(task, center.id),
+        assignedQuantity: taskQuantitySummary(task, center.id).assigned,
+        availableSlots: availableSlots(center)
+      })
       return
     }
-    void taskDetailDialogRef.value?.handleOpen({ row, workCenters: state.workCenters })
+    if (key === 'auto') {
+      const items = createAutomaticShiftPlan(
+        task,
+        center.id,
+        center.departmentId,
+        timelineDates.value,
+        calendarDayMap.value,
+        filters.direction
+      )
+      const total = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+      const assigned = taskQuantitySummary(task, center.id).assigned
+      if (total < assigned) {
+        ElMessage.warning('当前计划期间产能不足，请延长计划期间后再自动排产')
+        return
+      }
+      await ElMessageBox.confirm(
+        `将 ${task.operationName} 的未排数量按理论班次产能自动填充，是否继续？`,
+        '自动排产',
+        { confirmButtonText: '执行自动排产', cancelButtonText: '取消', type: 'warning' }
+      )
+      await replacePlan(task, center, items)
+      return
+    }
+    if (key === 'undo' || key === 'remove') {
+      const removeAssignment = key === 'remove'
+      await ElMessageBox.confirm(
+        removeAssignment
+          ? `将 ${task.operationName} 从 ${center.code} · ${center.name} 移除，是否继续？`
+          : `撤销 ${task.operationName} 在当前工作中心的全部班次排产，是否继续？`,
+        removeAssignment ? '移除分配' : '撤销排产',
+        {
+          confirmButtonText: removeAssignment ? '确认移除' : '确认撤销',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+      await replacePlan(task, center, [], !removeAssignment)
+      return
+    }
+    if (key === 'close') {
+      await ElMessageBox.confirm(
+        `结案后，该工序任务在其他工作中心的排产也会一并关闭。是否继续？`,
+        '结案关单',
+        { confirmButtonText: '确认结案', cancelButtonText: '取消', type: 'warning' }
+      )
+      await transitionOperationTask(task.id, 'close')
+      await loadWorkspace()
+    }
   }
 
-  function goToScheduling(): void {
-    void router.push('/mes/production-plan/scheduling')
+  function goToTaskAssignment(): void {
+    void router.push({ name: 'MesOperationTask' })
   }
 
-  let requestId = 0
+  let scopeRequestId = 0
+  async function loadProductionScope(): Promise<void> {
+    const request = ++scopeRequestId
+    state.scopeLoading = true
+    state.scopeError = ''
+    try {
+      const result = await fetchOperationTaskScope(effectiveTenantId.value)
+      if (request !== scopeRequestId) return
+      state.departments = result.departments
+      state.workCenters = result.workCenters
+      if (!workshopOptions.value.some((item) => item.id === scope.selectedWorkshopId)) {
+        scope.selectedWorkshopId = ''
+      }
+      if (!workCentersForWorkshop.value.some((item) => item.id === scope.selectedWorkCenterId)) {
+        scope.selectedWorkCenterId = ''
+      }
+    } catch {
+      if (request === scopeRequestId) state.scopeError = '车间与工作中心加载失败，请重试'
+    } finally {
+      if (request === scopeRequestId) state.scopeLoading = false
+    }
+  }
+
+  let workspaceRequestId = 0
   async function loadWorkspace(): Promise<void> {
-    const request = ++requestId
+    const request = ++workspaceRequestId
     state.loading = true
+    state.scopeLoading = true
     state.error = ''
     try {
       await tenantScopeStore.loadTenantOptions()
       const tenantId = effectiveTenantId.value || undefined
-      const [tasks, references] = await Promise.all([
-        fetchOperationTasks({
-          current: 1,
-          size: 1200,
-          tenantId,
-          workCenterId: filters.workCenterId || undefined
-        }),
-        fetchMesReferences(tenantId)
+      const [scopeResult, tasks, calendarDays] = await Promise.all([
+        fetchOperationTaskScope(tenantId),
+        fetchOperationTasks({ current: 1, size: 1200, tenantId }),
+        fetchGanttCalendar(filters.range[0], filters.range[1])
       ])
-      if (request !== requestId) return
+      if (request !== workspaceRequestId) return
+      state.departments = scopeResult.departments
+      state.workCenters = scopeResult.workCenters
       state.tasks = tasks.data
-      state.workCenters = references.workCenters
-      state.lastLoadedAt = dayjs().format('HH:mm:ss')
+      state.calendarDays = calendarDays
+      state.scopeError = ''
     } catch {
-      if (request === requestId) state.error = '甘特图排产数据加载失败，请稍后重试。'
+      if (request === workspaceRequestId) {
+        state.error = '甘特图排产数据加载失败，请检查生产日历后重试。'
+      }
     } finally {
-      if (request === requestId) state.loading = false
+      if (request === workspaceRequestId) {
+        state.loading = false
+        state.scopeLoading = false
+      }
     }
   }
 
   watch(
-    () => [effectiveTenantId.value, filters.workCenterId, filters.range[0], filters.range[1]],
-    loadWorkspace,
+    [effectiveTenantId, () => filters.range[0], () => filters.range[1]],
+    () => void loadWorkspace(),
     { immediate: true }
   )
 </script>
@@ -469,12 +775,29 @@
       gap: 0;
     }
 
+    &__workspace {
+      display: grid;
+      flex: 1;
+      grid-template-columns: 292px minmax(0, 1fr);
+      gap: var(--art-space-3);
+      min-width: 0;
+      min-height: 0;
+    }
+
+    &.is-scope-collapsed &__workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    &__scope,
+    &__board {
+      min-width: 0;
+      min-height: 0;
+    }
+
     &__board {
       display: flex;
-      flex: 1;
       flex-direction: column;
-      height: 0;
-      min-height: 0;
+      height: 100%;
       overflow: hidden;
 
       :deep(.gantt-page__board-body) {
@@ -491,93 +814,119 @@
 
     &__filters {
       display: flex;
+      flex: none;
       flex-wrap: wrap;
-      gap: var(--art-space-2);
+      gap: var(--art-space-2) var(--art-space-3);
       align-items: center;
-      justify-content: flex-end;
-      padding: 6px;
-      background: var(--art-gray-100);
-      border: 1px solid var(--el-border-color-lighter);
-      border-radius: var(--art-control-radius);
+      padding: 10px 12px;
+      margin-bottom: var(--art-space-2);
 
-      > .el-select {
-        width: 210px;
+      > .el-input {
+        width: 310px;
       }
 
       > .el-date-editor {
-        width: 260px;
+        width: 250px;
+      }
+
+      :deep(.el-checkbox-group) {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+
+        .el-checkbox {
+          margin-right: 0;
+        }
       }
     }
 
-    &__refresh-state {
+    &__filter-field {
       display: inline-flex;
-      gap: 6px;
+      gap: 8px;
       align-items: center;
-      min-height: 32px;
-      padding: 0 10px;
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
+      font-size: 12px;
       color: var(--el-text-color-secondary);
       white-space: nowrap;
-      background: var(--default-box-color);
-      border-right: 1px solid var(--el-border-color-lighter);
-      border-radius: calc(var(--art-control-radius) - 2px);
+
+      .el-select {
+        width: 118px;
+      }
     }
 
-    &__today-button {
-      margin-left: 0;
+    &__period-actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-left: auto;
     }
 
     &__legend {
       display: flex;
+      flex: none;
       flex-wrap: wrap;
-      gap: 8px 16px;
+      gap: 8px 20px;
       align-items: center;
-      padding: 9px 12px;
-      margin-bottom: var(--art-space-3);
-      font-size: 12px;
+      padding: 8px 12px;
+      margin-bottom: var(--art-space-2);
+      font-size: 11px;
       color: var(--el-text-color-secondary);
       background: var(--art-gray-100);
       border-radius: var(--art-control-radius);
 
-      > strong {
-        padding-right: 12px;
-        font-size: 12px;
+      > small {
+        margin-left: auto;
+        color: var(--el-text-color-placeholder);
+      }
+    }
+
+    &__legend-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+
+      strong {
         color: var(--el-text-color-primary);
-        border-right: 1px solid var(--el-border-color);
       }
 
       span {
         display: inline-flex;
-        gap: 6px;
+        gap: 5px;
         align-items: center;
       }
 
       i {
-        width: 8px;
-        height: 8px;
-        border-radius: 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: var(--el-border-radius-small);
+
+        &.is-processing {
+          background: var(--el-color-success);
+        }
+
+        &.is-adjusting {
+          background: var(--el-color-warning-light-5);
+        }
+
+        &.is-pending {
+          background: var(--el-text-color-placeholder);
+        }
+
+        &.is-over-capacity {
+          background: var(--el-color-danger-light-5);
+        }
       }
 
-      i.is-scheduled {
-        background: var(--theme-color);
+      .is-achieved {
+        color: var(--el-color-success);
       }
 
-      i.is-processing {
-        background: var(--el-color-success);
+      .is-shortfall {
+        color: var(--el-color-danger);
       }
 
-      i.is-warning {
-        background: var(--el-color-warning);
-      }
-
-      i.is-danger {
-        background: var(--el-color-danger);
-      }
-
-      small {
-        margin-left: auto;
-        color: var(--el-text-color-placeholder);
+      .is-excess {
+        color: var(--el-color-warning-dark-2);
       }
     }
 
@@ -587,317 +936,48 @@
       min-height: 0;
       border: 1px solid var(--el-border-color-lighter);
       border-radius: var(--art-control-radius);
-      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--el-border-color) 35%, transparent);
 
       :deep(.el-scrollbar__view) {
         min-height: 100%;
       }
     }
 
-    &__timeline {
-      --task-column-width: 300px;
-      --day-width: 88px;
-
-      position: relative;
-      display: grid;
-      grid-template-rows: 56px repeat(auto-fill, 72px);
-      grid-template-columns: var(--task-column-width) calc(var(--day-count) * var(--day-width));
-      width: calc(var(--task-column-width) + var(--day-count) * var(--day-width));
-      min-height: var(--timeline-height);
-      background: var(--default-box-color);
-    }
-
-    &__corner,
-    &__task-info {
-      position: sticky;
-      left: 0;
-      z-index: 4;
-      display: grid;
-      align-content: center;
-      min-width: 0;
-      padding: 9px 16px;
-      background: var(--default-box-color);
-      border-right: 1px solid var(--el-border-color-lighter);
-      border-bottom: 1px solid var(--el-border-color-lighter);
-    }
-
-    &__corner {
-      top: 0;
-      z-index: 6;
-      grid-row: 1;
-
-      strong {
-        font-size: 12px;
+    @media (width <= 1280px) {
+      &__workspace {
+        grid-template-columns: 252px minmax(0, 1fr);
       }
 
-      small {
-        margin-top: 2px;
-        font-size: 10px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-
-    &__days {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      display: grid;
-      grid-template-columns: repeat(var(--day-count), var(--day-width));
-      grid-row: 1;
-      grid-column: 2;
-      background: var(--art-gray-100);
-      box-shadow: 0 3px 8px color-mix(in srgb, var(--el-text-color-primary) 7%, transparent);
-    }
-
-    &__day {
-      display: grid;
-      place-content: center;
-      text-align: center;
-      border-right: 1px solid var(--el-border-color-lighter);
-      border-bottom: 1px solid var(--el-border-color-lighter);
-
-      strong {
-        font-size: 12px;
-        font-variant-numeric: tabular-nums;
+      &__filters > .el-input {
+        width: 260px;
       }
 
-      small {
-        margin-top: 2px;
-        font-size: 10px;
-        color: var(--el-text-color-secondary);
-      }
-
-      &.is-weekend {
-        background: color-mix(in srgb, var(--el-color-info) 5%, transparent);
-      }
-
-      &.is-today {
-        color: var(--theme-color);
-        box-shadow: inset 0 2px 0 var(--theme-color);
-      }
-    }
-
-    &__task-info {
-      grid-column: 1;
-
-      &.is-group-start {
-        box-shadow: inset 0 2px 0 color-mix(in srgb, var(--theme-color) 20%, transparent);
-      }
-
-      > strong,
-      > small {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      > small {
-        font-size: 10px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-
-    &__task-meta,
-    &__task-name {
-      display: flex;
-      gap: var(--art-space-2);
-      align-items: center;
-      justify-content: space-between;
-      min-width: 0;
-    }
-
-    &__task-meta > small {
-      flex: none;
-      font-size: 10px;
-      color: var(--el-text-color-secondary);
-
-      &.is-conflict {
-        color: var(--el-color-danger);
-      }
-
-      &.is-overdue,
-      &.is-unassigned {
-        color: var(--el-color-warning-dark-2);
-      }
-    }
-
-    &__task-name {
-      margin: 2px 0 1px;
-
-      strong {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 13px;
-        color: var(--el-text-color-primary);
-        white-space: nowrap;
-      }
-
-      b {
-        flex: none;
-        min-width: 28px;
-        font-size: 11px;
-        font-weight: 600;
-        font-variant-numeric: tabular-nums;
-        color: var(--theme-color);
-        text-align: right;
-      }
-    }
-
-    &__center {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 11px;
-      color: var(--el-text-color-secondary);
-      white-space: nowrap;
-
-      i {
-        flex: 0 0 7px;
-        width: 7px;
-        height: 7px;
-        background: var(--el-color-success);
-        border-radius: 50%;
-
-        &.is-conflict {
-          background: var(--el-color-danger);
-        }
-
-        &.is-overdue,
-        &.is-unassigned {
-          background: var(--el-color-warning);
-        }
-      }
-    }
-
-    &__lane {
-      position: relative;
-      display: grid;
-      grid-template-columns: repeat(var(--day-count), var(--day-width));
-      grid-column: 2;
-      overflow: hidden;
-      border-bottom: 1px solid var(--el-border-color-lighter);
-
-      &.is-group-start {
-        box-shadow: inset 0 2px 0 color-mix(in srgb, var(--theme-color) 20%, transparent);
-      }
-    }
-
-    &__grid-cell {
-      border-right: 1px solid var(--el-border-color-lighter);
-
-      &.is-weekend {
-        background: color-mix(in srgb, var(--el-color-info) 4%, transparent);
-      }
-
-      &.is-today {
-        background: color-mix(in srgb, var(--theme-color) 6%, transparent);
-      }
-    }
-
-    &__bar {
-      position: absolute;
-      top: 18px;
-      z-index: 2;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      justify-content: space-between;
-      min-width: 42px;
-      height: 36px;
-      padding: 0 10px;
-      overflow: hidden;
-      color: var(--el-color-primary-dark-2);
-      cursor: pointer;
-      background: var(--el-color-primary-light-8);
-      border: 1px solid var(--el-color-primary-light-5);
-      border-radius: 7px;
-
-      &:hover,
-      &:focus-visible {
-        outline: 2px solid color-mix(in srgb, var(--theme-color) 45%, transparent);
-        outline-offset: 1px;
-      }
-
-      span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 12px;
-        font-weight: 600;
-        white-space: nowrap;
-      }
-
-      small {
-        flex: none;
-        font-size: 10px;
-        opacity: 0.78;
-      }
-
-      &.is-processing {
-        color: var(--el-color-success-dark-2);
-        background: var(--el-color-success-light-8);
-        border-color: var(--el-color-success-light-5);
-      }
-
-      &.is-overdue,
-      &.is-unassigned {
-        color: var(--el-color-warning-dark-2);
-        background: var(--el-color-warning-light-8);
-        border-color: var(--el-color-warning-light-5);
-      }
-
-      &.is-conflict {
-        color: var(--el-color-danger-dark-2);
-        background: var(--el-color-danger-light-8);
-        border-color: var(--el-color-danger-light-5);
-      }
-
-      &.is-closed {
-        color: var(--el-text-color-secondary);
-        background: var(--art-gray-200);
-        border-color: var(--el-border-color);
-      }
-    }
-
-    @media (width <= 1000px) {
-      &__filters {
-        justify-content: flex-start;
-      }
-
-      &__refresh-state {
-        width: 100%;
-        border-right: 0;
-        border-bottom: 1px solid var(--el-border-color-lighter);
-      }
-
-      &__legend small {
+      &__legend > small {
         width: 100%;
         margin-left: 0;
       }
-
-      &__timeline {
-        --task-column-width: 230px;
-        --day-width: 78px;
-      }
     }
 
-    @media (width <= 640px) {
-      &__filters,
-      &__filters > .el-select,
-      &__filters > .el-date-editor {
-        width: 100%;
+    @media (width <= 920px) {
+      &__workspace {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      &__scope {
+        display: none;
       }
 
       &__board {
         height: auto;
-        min-height: 560px;
+        min-height: 640px;
       }
-    }
 
-    @media (prefers-reduced-motion: reduce) {
-      &__viewport :deep(.el-scrollbar__wrap) {
-        scroll-behavior: auto;
+      &__filters > .el-input,
+      &__filters > .el-date-editor {
+        width: 100%;
+      }
+
+      &__period-actions {
+        margin-left: 0;
       }
     }
   }

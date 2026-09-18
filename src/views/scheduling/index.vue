@@ -6,9 +6,9 @@
     >
       <BusinessWorkspaceHeader
         v-show="!focusMode"
-        eyebrow="LEAN SCHEDULING"
-        title="排产"
-        description="围绕已确认生产工单安排工序、工作中心与计划周期，形成可执行的生产顺序。"
+        eyebrow="PRODUCTION DISPATCH"
+        title="排产工作台"
+        description="以工序任务为唯一待排来源，按车间、产线与班次完成数量拆分、工作中心分配和产能校验。"
         icon="ri:calendar-schedule-line"
         :tags="workspaceTags"
         :metrics="metrics"
@@ -25,486 +25,984 @@
         </template>
       </BusinessWorkspaceHeader>
 
-      <div class="scheduling-page__workspace business-workspace-content">
-        <ArtSectionCard
-          class="scheduling-page__queue-card"
-          title="待排工单"
-          subtitle="已确认工单可排产；待确认与异常工单会标明阻塞原因。"
-          :loading="state.loading"
-          :error="state.error"
-          :empty="!state.loading && !state.error && !queueOrders.length"
-          empty-title="暂无待处理生产工单"
-          empty-description="新建生产工单并完成确认后，可在这里继续安排工序资源。"
-          :min-height="0"
-          body-class="scheduling-page__card-body"
-          retryable
-          @retry="loadWorkspace"
-        >
-          <template #actions>
-            <ElButton
-              v-if="selectedOrderSchedulable"
-              v-auth="'MesScheduling:AutoSchedule'"
-              type="primary"
-              plain
-              :disabled="!state.rules.length || selectedOrder?.scheduleLocked"
-              @click="openAutoSchedule"
-            >
-              <ArtSvgIcon icon="ri:magic-line" />自动排产
-            </ElButton>
-            <ElTag type="info" effect="plain" round> {{ queueOrders.length }} 张工单 </ElTag>
-          </template>
-
-          <template #empty-action>
-            <ElButton type="primary" plain @click="goToWorkOrders">前往生产工单</ElButton>
-          </template>
-
-          <div v-if="queueOrders.length" class="scheduling-page__queue-tools">
+      <section
+        v-show="!focusMode"
+        class="scheduling-page__filters art-card-xs"
+        aria-label="排产查询条件"
+      >
+        <div class="scheduling-page__filter-grid">
+          <label>
+            <span>车间 / 产线</span>
+            <ElTreeSelect
+              v-model="filters.departmentId"
+              :data="departmentTree"
+              :props="{ label: 'name', children: 'children' }"
+              node-key="id"
+              check-strictly
+              clearable
+              filterable
+              default-expand-all
+              placeholder="全部车间与产线"
+              @change="handleScopeChange"
+            />
+          </label>
+          <label>
+            <span>工单开工日期</span>
+            <ElDatePicker
+              v-model="filters.workOrderStartDates"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              unlink-panels
+              clearable
+              :shortcuts="dateShortcuts"
+            />
+          </label>
+          <label>
+            <span>班次</span>
+            <ElSelect v-model="filters.shiftScheduleId" clearable filterable placeholder="全部班次">
+              <ElOption
+                v-for="shift in availableShifts"
+                :key="shift.id"
+                :label="`${shift.name} ${shift.startTime}-${shift.endTime}`"
+                :value="shift.id"
+              />
+            </ElSelect>
+          </label>
+          <label class="scheduling-page__filter-keyword">
+            <span>组合查询</span>
             <ElInput
               v-model="filters.keyword"
               clearable
-              placeholder="搜索工单号或产品"
-              aria-label="搜索待排工单"
+              placeholder="任务号、工单号、物料、规格、项目、跟踪号或客户代码"
             >
               <template #prefix><ArtSvgIcon icon="ri:search-line" /></template>
             </ElInput>
-            <span>按交期与紧急程度核对待排顺序</span>
+          </label>
+          <div class="scheduling-page__filter-actions">
+            <ElButton @click="openAdvancedFilters">
+              <ArtSvgIcon icon="ri:filter-3-line" />
+              更多条件
+            </ElButton>
+            <ElButton @click="resetFilters">重置</ElButton>
           </div>
+        </div>
+      </section>
 
-          <ElScrollbar v-if="visibleOrders.length" class="scheduling-page__order-scrollbar">
-            <div class="scheduling-page__order-list">
-              <button
-                v-for="order in visibleOrders"
-                :key="order.id"
-                type="button"
-                class="scheduling-page__order"
-                :class="{ 'is-active': order.id === selectedOrderId }"
-                :aria-pressed="order.id === selectedOrderId"
-                @click="selectedOrderId = order.id"
-              >
-                <span class="scheduling-page__order-head">
-                  <strong>{{ order.workOrderNo }}</strong>
-                  <ArtDictDisplay
-                    dict-code="mesWorkOrderStatus"
-                    :value="order.status"
-                    display="tag"
-                  />
-                </span>
-                <span class="scheduling-page__product">
-                  {{ order.materialCodeSnapshot }} · {{ order.materialNameSnapshot }}
-                </span>
-                <span
-                  v-if="order.statusReason"
-                  class="scheduling-page__order-blocker"
-                  :title="order.statusReason"
-                >
-                  <ArtSvgIcon icon="ri:alert-line" />
-                  {{ order.statusReason }}
-                </span>
-                <span class="scheduling-page__order-foot">
-                  <span class="scheduling-page__order-meta">
-                    <ArtDictDisplay
-                      dict-code="mesWorkOrderUrgency"
-                      :value="order.urgency"
-                      display="text"
-                    />
-                    · {{ tasksForOrder(order.id).length }} 道工序
-                  </span>
-                  <span>交期 {{ order.plannedEndDate }}</span>
-                </span>
-                <i
-                  v-if="scheduleProgress(order.id)"
-                  :style="{ width: `${scheduleProgress(order.id)}%` }"
-                />
-              </button>
-            </div>
-          </ElScrollbar>
-          <ArtEmptyState
-            v-else-if="queueOrders.length"
-            class="scheduling-page__queue-empty"
-            title="没有匹配的待排工单"
-            description="请调整工单号或产品关键字后重新搜索。"
-            :visual-size="72"
-          >
-            <ElButton plain @click="filters.keyword = ''">清除搜索</ElButton>
-          </ArtEmptyState>
-        </ArtSectionCard>
-
+      <main
+        class="scheduling-page__workspace business-workspace-content"
+        :class="{ 'is-overview-collapsed': overviewCollapsed }"
+      >
         <ArtSectionCard
-          class="scheduling-page__detail-card"
-          :title="selectedOrder?.workOrderNo || '工序排产明细'"
-          :subtitle="
-            selectedOrder
-              ? `${selectedOrder.materialCodeSnapshot} · ${selectedOrder.materialNameSnapshot}`
-              : '选择左侧工单开始排产'
-          "
+          class="scheduling-page__task-card"
+          :title="`待排产任务（约 ${totalStandardHours.toFixed(1)} 标准工时 H）`"
+          :subtitle="`${filteredTasks.length} 条工序任务 · 与工序任务列表共用同一数据源`"
           :loading="state.loading"
           :error="state.error"
-          :empty="!state.loading && (!selectedOrder || !selectedOrderSchedulable)"
-          :empty-title="detailEmptyTitle"
-          :empty-description="detailEmptyDescription"
+          :empty="!state.loading && !state.error && !filteredTasks.length"
+          empty-title="当前条件下没有待排产任务"
+          empty-description="请调整车间、班次或组合查询条件；已结案和无需排产任务可通过状态条件查看。"
           :min-height="0"
-          body-class="scheduling-page__card-body"
+          body-class="scheduling-page__task-body"
           retryable
           @retry="loadWorkspace"
         >
           <template #actions>
             <BusinessWorkspaceFocusToggle v-if="focusMode" v-model="focusMode" />
-            <ArtDictDisplay
-              v-if="selectedOrder"
-              dict-code="mesWorkOrderStatus"
-              :value="selectedOrder.status"
-              display="tag"
-            />
-            <ElSegmented
-              v-if="selectedOrderSchedulable"
-              v-model="filters.taskScope"
-              :options="taskScopeOptions"
-              size="small"
-              aria-label="工序任务范围"
-            />
-          </template>
-
-          <template #empty-action>
-            <ElButton v-if="selectedOrder" type="primary" plain @click="goToWorkOrders">
-              处理生产工单
-            </ElButton>
-          </template>
-
-          <template v-if="selectedOrderSchedulable && selectedOrder">
-            <div class="scheduling-page__health" aria-label="当前工单排产健康度">
-              <div>
-                <span><i class="is-primary" />排程进度</span>
-                <strong>{{ scheduleProgress(selectedOrder.id) }}%</strong>
-              </div>
-              <div>
-                <span><i class="is-warning" />待排工序</span>
-                <strong>{{ selectedStats.unscheduled }}</strong>
-              </div>
-              <div>
-                <span><i class="is-danger" />资源冲突</span>
-                <strong>{{ selectedStats.conflicts }}</strong>
-              </div>
-              <div>
-                <span><i class="is-info" />计划周期</span>
-                <strong
-                  >{{ selectedOrder.plannedStartDate || '待定' }} —
-                  {{ selectedOrder.plannedEndDate }}</strong
-                >
-              </div>
-            </div>
-
-            <ArtTable
-              class="scheduling-page__task-table"
-              row-key="id"
-              :data="visibleTasks"
-              :columns="taskColumns"
-              :pagination="false"
-              :show-table-header="false"
-              height="100%"
-              empty-height="100%"
-              :empty-text="filters.taskScope === 'attention' ? '暂无待处理工序' : '暂无工序任务'"
-              empty-description="切换为全部工序，或检查工单确认时是否已生成工序任务。"
+            <span class="scheduling-page__sync-state" role="status" aria-live="polite">
+              <i :class="{ 'is-live': state.realtimeConnected }" />
+              {{ state.realtimeConnected ? '实时同步' : '自动刷新' }} ·
+              {{ state.lastLoadedAt || '待加载' }}
+            </span>
+            <ArtTooltip content="批量确认" placement="bottom">
+              <ArtIconButton
+                icon="ri:checkbox-circle-line"
+                label="批量确认"
+                permission="MesOperationTask:Schedule"
+                :disabled="!selectedRows.length"
+                :loading="state.batchBusy"
+                @click="confirmSelected"
+              />
+            </ArtTooltip>
+            <ArtTooltip content="批量结案" placement="bottom">
+              <ArtIconButton
+                icon="ri:inbox-unarchive-line"
+                label="批量结案"
+                permission="MesOperationTask:Close"
+                :disabled="!selectedRows.length || state.batchBusy"
+                @click="closeSelected"
+              />
+            </ArtTooltip>
+            <ArtTooltip
+              :content="overviewCollapsed ? '展开任务总览' : '收起任务总览'"
+              placement="bottom"
             >
-              <template #sequenceNo="{ row }">
-                <strong class="scheduling-page__sequence">{{ row.sequenceNo }}</strong>
-              </template>
-              <template #operationName="{ row }">
-                <span class="scheduling-page__operation-name">
-                  <strong>{{ row.operationName }}</strong>
-                  <small>{{ row.operationCode }}</small>
-                </span>
-              </template>
-              <template #plannedStartDate="{ row }">
-                <span class="scheduling-page__planned-period">
-                  {{ taskStartDate(row) || '待定' }} — {{ taskEndDate(row) || '待定' }}
-                </span>
-              </template>
-              <template #status="{ row }">
-                <ElTag :type="riskMeta(row).type" effect="light" size="small">
-                  {{ riskMeta(row).label }}
-                </ElTag>
-              </template>
-              <template #operation="{ row }">
-                <div class="scheduling-page__row-actions">
-                  <ElButton
-                    v-auth="'MesOperationTask:Schedule'"
-                    link
-                    :type="row.scheduleLocked ? 'warning' : 'info'"
-                    :disabled="!['pending', 'scheduled'].includes(row.schedulingStatus)"
-                    @click="toggleTaskLock(row)"
-                  >
-                    {{ row.scheduleLocked ? '解锁' : '锁定' }}
-                  </ElButton>
-                  <ArtButtonTable
-                    type="edit"
-                    :label="row.schedulingStatus === 'scheduled' ? '调整排程' : '安排排程'"
-                    permission="MesOperationTask:Schedule"
-                    :disabled="
-                      row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
-                    "
-                    @click="openSchedule(row)"
-                  />
-                </div>
-              </template>
-            </ArtTable>
+              <ArtIconButton
+                :icon="overviewCollapsed ? 'ri:side-bar-fill' : 'ri:side-bar-line'"
+                :label="overviewCollapsed ? '展开任务总览' : '收起任务总览'"
+                @click="overviewCollapsed = !overviewCollapsed"
+              />
+            </ArtTooltip>
           </template>
+          <ArtTable
+            v-if="filteredTasks.length"
+            ref="taskTableRef"
+            class="scheduling-page__table"
+            row-key="id"
+            :data="filteredTasks"
+            :columns="taskColumns"
+            :pagination="false"
+            :show-table-header="false"
+            height="100%"
+            empty-height="100%"
+            @selection-change="handleSelectionChange"
+          />
         </ArtSectionCard>
-      </div>
 
-      <ScheduleDialog ref="scheduleDialogRef" @success="loadWorkspace" />
-      <AutoScheduleDialog ref="autoScheduleDialogRef" @success="loadWorkspace" />
+        <WorkCenterOverview
+          v-if="!overviewCollapsed"
+          class="scheduling-page__overview"
+          :centers="scopedWorkCenters"
+          :tasks="filteredTasks"
+          :shift="selectedShift"
+          :scope-label="selectedDepartment?.name || '全部工作中心'"
+          @gantt="goToGantt"
+          @daily-plan="goToDailyPlan"
+          @batch-close="closeTaskIds"
+        >
+          <template #import>
+            <span v-auth="'MesOperationTask:Schedule'">
+              <ArtExcelImport
+                icon="ri:file-upload-line"
+                :button-props="{ link: true, loading: state.importing }"
+                @import-success="handleScheduleImport"
+                @import-error="handleImportError"
+                >导入</ArtExcelImport
+              >
+            </span>
+          </template>
+        </WorkCenterOverview>
+      </main>
+
+      <AverageAllocationDialog ref="allocationDialogRef" @success="loadWorkspace" />
+      <SchedulingAdvancedFilterDrawer ref="advancedFilterDrawerRef" @apply="applyAdvancedFilters" />
+      <TaskAnnotationDialog ref="annotationDialogRef" @success="loadWorkspace" />
+      <TaskDueDateDialog ref="dueDateDialogRef" @success="loadWorkspace" />
     </div>
   </ArtPermissionGuard>
 </template>
 
-<script setup lang="ts">
-  import { computed, reactive, ref, watch } from 'vue'
+<script setup lang="tsx">
+  import dayjs from 'dayjs'
+  import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+  import { useDebounceFn } from '@vueuse/core'
+  import { ElInputNumber, ElMessage, ElOption, ElSelect } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { storeToRefs } from 'pinia'
-  import type { TagProps } from 'element-plus'
   import ArtDictDisplay from '@/components/core/base/art-dict-display/index.vue'
+  import ArtExcelImport from '@/components/core/forms/art-excel-import/index.vue'
+  import ArtButtonMore from '@/components/core/forms/art-button-more/index.vue'
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
+  import ArtIconButton from '@/components/core/widget/art-icon-button/index.vue'
   import ArtPermissionGuard from '@/components/core/feedback/art-permission-guard/index.vue'
-  import ArtEmptyState from '@/components/core/feedback/art-empty-state/index.vue'
   import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
   import ArtTable from '@/components/core/tables/art-table/index.vue'
+  import type { ArtTableExpose } from '@/components/core/tables/art-table/index.vue'
+  import BusinessTableRowActions from '@/components/business/business-table-row-actions/index.vue'
   import BusinessWorkspaceFocusToggle from '@/components/business/business-workspace-focus-toggle/index.vue'
   import BusinessWorkspaceHeader, {
     type BusinessWorkspaceMetric,
     type BusinessWorkspaceTag
   } from '@/components/business/business-workspace-header/index.vue'
+  import { useArtFeedback } from '@/hooks/core/useArtFeedback'
   import { useWorkspaceFocus } from '@/hooks/core/useWorkspaceFocus'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
   import type { ColumnOption } from '@/types'
+  import TreeUtils from '@/utils/tree'
   import {
-    fetchMesReferences,
+    batchTransitionOperationTasks,
+    confirmOperationTaskSchedule,
+    fetchOperationTaskScope,
     fetchOperationTasks,
-    fetchSchedulingRules,
-    fetchWorkOrders,
-    setOperationTaskScheduleLock,
+    fetchSchedulingContext,
+    subscribeMesSchedulingChanges,
+    transitionOperationTask,
     type MesOperationTask,
-    type MesReferenceOption,
-    type MesSchedulingRule,
-    type MesWorkOrder
+    type MesProductionDepartment,
+    type MesProductionScopeCenter,
+    type MesSchedulingShift
   } from '@mes/api'
-  import ScheduleDialog, {
-    type ScheduleDialogOpenData
-  } from '../manufacturing/modules/schedule-dialog.vue'
-  import AutoScheduleDialog, {
-    type AutoScheduleDialogOpenData
-  } from './modules/auto-schedule-dialog.vue'
-  import {
-    conflictTaskIds,
-    scheduleRisk,
-    scheduleRiskLabel,
-    taskEndDate,
-    taskStartDate
-  } from './modules/schedule-policy'
+  import TaskAnnotationDialog, {
+    type TaskAnnotationDialogOpenData
+  } from '../manufacturing/modules/task-annotation-dialog.vue'
+  import TaskDueDateDialog, {
+    type TaskDueDateDialogOpenData
+  } from '../manufacturing/modules/task-due-date-dialog.vue'
+  import WorkOrderUrgencyLabel from '../manufacturing/modules/work-order-urgency-label.vue'
+  import AverageAllocationDialog, {
+    type AverageAllocationDialogOpenData
+  } from './modules/average-allocation-dialog.vue'
+  import SchedulingAdvancedFilterDrawer, {
+    type SchedulingAdvancedFilters
+  } from './modules/scheduling-advanced-filter-drawer.vue'
+  import WorkCenterOverview from './modules/work-center-overview.vue'
 
   defineOptions({ name: 'MesScheduling' })
   const declaredPermissions = [
     'MesScheduling:View',
-    'MesScheduling:AutoSchedule',
     'MesScheduling:ConfigureRule',
-    'MesOperationTask:Schedule'
+    'MesOperationTask:View',
+    'MesOperationTask:Schedule',
+    'MesOperationTask:Close',
+    'MesOperationTask:Annotate',
+    'MesOperationTask:MaintainDueDate'
   ] as const
   void declaredPermissions
 
-  const tenantScopeStore = useTenantScopeStore()
+  interface ScheduleDraft {
+    quantity: number | undefined
+    workCenterId: string
+  }
+  interface SchedulingFilters {
+    departmentId: string
+    workOrderStartDates: [string, string] | undefined
+    shiftScheduleId: string
+    keyword: string
+    workOrderNo: string
+    materialKeyword: string
+    specProjectKeyword: string
+    trackingCustomerKeyword: string
+    schedulingStatus: string
+  }
+  type DepartmentTreeNode = MesProductionDepartment & { children?: DepartmentTreeNode[] }
+
   const router = useRouter()
-  const { focusMode } = useWorkspaceFocus()
+  const tenantScopeStore = useTenantScopeStore()
   const { effectiveTenantId } = storeToRefs(tenantScopeStore)
-  const scheduleDialogRef = ref<{ handleOpen: (data: ScheduleDialogOpenData) => Promise<void> }>()
-  const autoScheduleDialogRef = ref<{
-    handleOpen: (data: AutoScheduleDialogOpenData) => Promise<void>
+  const { focusMode } = useWorkspaceFocus()
+  const { confirmAction } = useArtFeedback()
+  const taskTableRef = ref<ArtTableExpose>()
+  const allocationDialogRef = ref<{
+    handleOpen: (data: AverageAllocationDialogOpenData) => Promise<void>
   }>()
+  const advancedFilterDrawerRef = ref<{
+    handleOpen: (filters: SchedulingAdvancedFilters) => Promise<void>
+  }>()
+  const annotationDialogRef = ref<{
+    handleOpen: (data: TaskAnnotationDialogOpenData) => Promise<void>
+  }>()
+  const dueDateDialogRef = ref<{ handleOpen: (data: TaskDueDateDialogOpenData) => Promise<void> }>()
   const state = reactive({
     loading: false,
+    batchBusy: false,
+    importing: false,
     error: '',
-    orders: [] as MesWorkOrder[],
+    lastLoadedAt: '',
+    realtimeConnected: false,
     tasks: [] as MesOperationTask[],
-    workCenters: [] as MesReferenceOption[],
-    rules: [] as MesSchedulingRule[]
+    departments: [] as MesProductionDepartment[],
+    workCenters: [] as MesProductionScopeCenter[],
+    shifts: [] as MesSchedulingShift[]
   })
-  const filters = reactive({ keyword: '', taskScope: 'all' as 'all' | 'attention' })
-  const selectedOrderId = ref('')
-  const taskScopeOptions = [
-    { label: '全部工序', value: 'all' },
-    { label: '仅看待处理', value: 'attention' }
-  ]
+  const filters = reactive<SchedulingFilters>({
+    departmentId: '',
+    workOrderStartDates: undefined,
+    shiftScheduleId: '',
+    keyword: '',
+    workOrderNo: '',
+    materialKeyword: '',
+    specProjectKeyword: '',
+    trackingCustomerKeyword: '',
+    schedulingStatus: ''
+  })
+  const drafts = reactive<Record<string, ScheduleDraft>>({})
+  const selectedRows = ref<MesOperationTask[]>([])
+  const overviewCollapsed = ref(false)
+  const productionTree = new TreeUtils({ deepClone: false })
   const workspaceTags: BusinessWorkspaceTag[] = [
-    { label: '工单驱动', type: 'primary' },
-    { label: '资源约束', type: 'warning' },
-    { label: '工序落地', type: 'success' }
+    { label: '工序任务实时同步', type: 'primary' },
+    { label: '班次产能校验', type: 'warning' },
+    { label: '多中心分配', type: 'success' }
+  ]
+  const dateShortcuts = [
+    { text: '今天', value: () => [new Date(), new Date()] },
+    {
+      text: '昨天',
+      value: () => [dayjs().subtract(1, 'day').toDate(), dayjs().subtract(1, 'day').toDate()]
+    },
+    { text: '明天', value: () => [dayjs().add(1, 'day').toDate(), dayjs().add(1, 'day').toDate()] }
   ]
 
-  const schedulableOrders = computed(() =>
-    state.orders.filter((order) => order.status === 'confirmed')
+  const departmentTree = computed<DepartmentTreeNode[]>(
+    () =>
+      productionTree.listToTree(
+        state.departments.filter((item) => item.enabled)
+      ) as DepartmentTreeNode[]
   )
-  const queueOrders = computed(() => state.orders.filter((order) => order.status !== 'closed'))
-  const visibleOrders = computed(() => {
-    const keyword = filters.keyword.trim().toLocaleLowerCase()
-    if (!keyword) return queueOrders.value
-    return queueOrders.value.filter((order) =>
-      [order.workOrderNo, order.materialCodeSnapshot, order.materialNameSnapshot].some((value) =>
-        value.toLocaleLowerCase().includes(keyword)
-      )
+  const selectedDepartment = computed(() =>
+    state.departments.find((item) => item.id === filters.departmentId)
+  )
+  const selectedDepartmentIds = computed(() => {
+    if (!filters.departmentId) return []
+    return productionTree
+      .getDescendants(departmentTree.value, filters.departmentId, true)
+      .map((item) => String(item.id))
+  })
+  const scopedWorkCenters = computed(() => {
+    if (!selectedDepartment.value) return state.workCenters
+    return state.workCenters.filter(
+      (center) =>
+        center.tenantId === selectedDepartment.value?.tenantId &&
+        selectedDepartmentIds.value.includes(center.departmentId)
     )
   })
-  const selectedOrder = computed(() =>
-    queueOrders.value.find((order) => order.id === selectedOrderId.value)
-  )
-  const selectedOrderSchedulable = computed(() => selectedOrder.value?.status === 'confirmed')
-  const detailEmptyTitle = computed(() => {
-    if (!selectedOrder.value) return '请选择生产工单'
-    if (selectedOrder.value.status === 'abnormal') return '当前工单存在异常，暂不可排产'
-    return '当前工单尚未确认，暂不可排产'
+  const availableShifts = computed(() => {
+    if (!selectedDepartment.value) return state.shifts
+    return state.shifts.filter(
+      (shift) =>
+        shift.tenantId === selectedDepartment.value?.tenantId &&
+        selectedDepartmentIds.value.includes(shift.departmentId)
+    )
   })
-  const detailEmptyDescription = computed(() => {
-    if (!selectedOrder.value) return '选中左侧工单后，可查看排产条件与工序明细。'
-    if (selectedOrder.value.status === 'abnormal') {
-      return selectedOrder.value.statusReason || '请先处理工单异常，再重新确认并进入排产。'
-    }
-    return '请先在生产工单中完成确认；确认成功后系统会生成对应工序任务。'
-  })
-  const selectedTasks = computed(() => tasksForOrder(selectedOrderId.value))
-  const conflicts = computed(() => conflictTaskIds(state.tasks))
-  const visibleTasks = computed(() =>
-    filters.taskScope === 'attention'
-      ? selectedTasks.value.filter((task) => scheduleRisk(task, conflicts.value) !== 'healthy')
-      : selectedTasks.value
+  const selectedShift = computed(() =>
+    state.shifts.find((shift) => shift.id === filters.shiftScheduleId)
   )
-  const selectedStats = computed(() => ({
-    unscheduled: selectedTasks.value.filter(
-      (task) => scheduleRisk(task, conflicts.value) === 'unassigned'
-    ).length,
-    conflicts: selectedTasks.value.filter((task) => conflicts.value.has(task.id)).length
-  }))
+  const filteredTasks = computed(() =>
+    state.tasks.filter((task) => {
+      if (selectedDepartmentIds.value.length) {
+        const inDepartment = task.departmentId
+          ? selectedDepartmentIds.value.includes(task.departmentId)
+          : false
+        const inCenter = (task.allocations || []).some((allocation) =>
+          scopedWorkCenters.value.some((center) => center.id === allocation.workCenterId)
+        )
+        if (!inDepartment && !inCenter) return false
+      }
+      if (
+        filters.workOrderStartDates &&
+        (!task.workOrder?.plannedStartDate ||
+          dayjs(task.workOrder.plannedStartDate).isBefore(filters.workOrderStartDates[0], 'day') ||
+          dayjs(task.workOrder.plannedStartDate).isAfter(filters.workOrderStartDates[1], 'day'))
+      )
+        return false
+      if (
+        filters.shiftScheduleId &&
+        (task.allocations || []).length &&
+        !(task.allocations || []).some(
+          (allocation) => allocation.shiftScheduleId === filters.shiftScheduleId
+        )
+      )
+        return false
+      if (filters.schedulingStatus && task.schedulingStatus !== filters.schedulingStatus)
+        return false
+      if (!matchesText(task.workOrder?.workOrderNo, filters.workOrderNo)) return false
+      if (
+        !matchesAny(
+          [task.workOrder?.materialCodeSnapshot, task.workOrder?.materialNameSnapshot],
+          filters.materialKeyword
+        )
+      )
+        return false
+      if (
+        !matchesAny(
+          [task.workOrder?.specificationSnapshot, task.workOrder?.projectNameSnapshot],
+          filters.specProjectKeyword
+        )
+      )
+        return false
+      if (
+        !matchesAny(
+          [task.workOrder?.trackingNo, task.workOrder?.customerCode],
+          filters.trackingCustomerKeyword
+        )
+      )
+        return false
+      return matchesAny(
+        [
+          task.taskNo,
+          task.operationCode,
+          task.operationName,
+          task.workOrder?.workOrderNo,
+          task.workOrder?.materialCodeSnapshot,
+          task.workOrder?.materialNameSnapshot,
+          task.workOrder?.specificationSnapshot,
+          task.workOrder?.projectNameSnapshot,
+          task.workOrder?.trackingNo,
+          task.workOrder?.customerCode
+        ],
+        filters.keyword
+      )
+    })
+  )
+  const totalStandardHours = computed(() =>
+    filteredTasks.value.reduce(
+      (total, task) => total + Number(task.estimatedWorkMinutes || 0) / 60,
+      0
+    )
+  )
+  const metrics = computed<BusinessWorkspaceMetric[]>(() => {
+    const tasks = filteredTasks.value
+    const pending = tasks.filter((task) => task.schedulingStatus === 'pending').length
+    const scheduledQuantity = tasks.reduce(
+      (total, task) => total + Number(task.scheduledQuantity || 0),
+      0
+    )
+    return [
+      {
+        label: '待排任务',
+        value: pending,
+        description: '等待确认工作中心',
+        icon: 'ri:time-line',
+        tone: pending ? 'warning' : 'success'
+      },
+      {
+        label: '标准工时',
+        value: `${totalStandardHours.value.toFixed(1)} H`,
+        description: '当前任务累计预计用时',
+        icon: 'ri:timer-line'
+      },
+      {
+        label: '已排数量',
+        value: Number(scheduledQuantity.toFixed(2)),
+        description: '已确认进入工作中心',
+        icon: 'ri:checkbox-circle-line',
+        tone: 'success'
+      },
+      {
+        label: '工作中心',
+        value: scopedWorkCenters.value.length,
+        description: selectedDepartment.value?.name || '当前租户全部范围',
+        icon: 'ri:building-2-line'
+      }
+    ]
+  })
+
   const taskColumns: ColumnOption<MesOperationTask>[] = [
+    { type: 'selection', width: 48, fixed: 'left' },
+    { type: 'globalIndex', label: '序号', width: 66, fixed: 'left' },
+    { prop: 'taskNo', label: '任务单号', minWidth: 164, fixed: 'left', showOverflowTooltip: true },
     {
-      prop: 'sequenceNo',
-      label: '顺序',
-      width: 86,
-      fixed: 'left',
-      useSlot: true
-    },
-    {
-      prop: 'operationName',
-      label: '工序',
-      minWidth: 190,
-      useSlot: true
-    },
-    {
-      prop: 'workCenterId',
-      label: '工作中心',
-      minWidth: 200,
+      prop: 'workOrderNo',
+      label: '生产工单',
+      minWidth: 150,
       showOverflowTooltip: true,
-      formatter: (row) => workCenterName(row.workCenterId)
+      formatter: (row) => row.workOrder?.workOrderNo || '—'
     },
     {
-      prop: 'plannedStartDate',
-      label: '计划周期',
-      minWidth: 230,
-      useSlot: true
+      prop: 'workOrderType',
+      label: '工单类型',
+      minWidth: 130,
+      formatter: (row) => (
+        <span class="scheduling-page__order-type">
+          <span>{row.workOrder?.workOrderTypeNameSnapshot || '—'}</span>
+          <WorkOrderUrgencyLabel urgency={row.workOrder?.urgency || row.urgency} showText={false} />
+        </span>
+      )
     },
     {
-      prop: 'status',
-      label: '排程状态',
-      width: 126,
+      prop: 'projectName',
+      label: '项目名称',
+      minWidth: 150,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.projectNameSnapshot || '—'
+    },
+    {
+      prop: 'materialCode',
+      label: '产品编码',
+      minWidth: 140,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.materialCodeSnapshot || '—'
+    },
+    {
+      prop: 'materialName',
+      label: '品名 / 规格型号',
+      minWidth: 220,
+      showOverflowTooltip: true,
+      formatter: (row) =>
+        [row.workOrder?.materialNameSnapshot, row.workOrder?.specificationSnapshot]
+          .filter(Boolean)
+          .join(' · ') || '—'
+    },
+    { prop: 'sequenceNo', label: '工序序列', width: 100, align: 'right' },
+    { prop: 'operationCode', label: '工序号', minWidth: 112, showOverflowTooltip: true },
+    { prop: 'operationName', label: '工序名称', minWidth: 150, showOverflowTooltip: true },
+    {
+      prop: 'schedulingStatus',
+      label: '排产状态',
+      width: 104,
       align: 'center',
-      useSlot: true
+      formatter: (row) => (
+        <ArtDictDisplay
+          dict-code="mesOperationTaskScheduleStatus"
+          value={row.schedulingStatus}
+          display="tag"
+        />
+      )
+    },
+    {
+      prop: 'plannedQuantity',
+      label: '工序数量',
+      minWidth: 112,
+      align: 'right',
+      formatter: (row) => quantityText(row.plannedQuantity, row.operationUnit)
+    },
+    {
+      prop: 'pendingScheduleQuantity',
+      label: '待排产数量',
+      minWidth: 118,
+      align: 'right',
+      formatter: (row) => quantityText(row.pendingScheduleQuantity, row.operationUnit)
+    },
+    {
+      prop: 'scheduledQuantity',
+      label: '已排产数量',
+      minWidth: 118,
+      align: 'right',
+      formatter: (row) => quantityText(row.scheduledQuantity, row.operationUnit)
+    },
+    {
+      prop: 'completedQuantity',
+      label: '完工数量',
+      minWidth: 108,
+      align: 'right',
+      formatter: (row) => quantityText(row.completedQuantity, row.operationUnit)
+    },
+    {
+      prop: 'standardHours',
+      label: '标准工时',
+      minWidth: 104,
+      align: 'right',
+      formatter: (row) => `${(Number(row.estimatedWorkMinutes || 0) / 60).toFixed(2)} H`
+    },
+    { prop: 'requiredStartDate', label: '工序要求开工日期', width: 140 },
+    {
+      prop: 'requiredCompletionDate',
+      label: '工序要求完工日期',
+      width: 158,
+      formatter: (row) => (
+        <ArtButtonTable
+          type="view"
+          label={row.requiredCompletionDate || '设置日期'}
+          permission="MesOperationTask:MaintainDueDate"
+          onClick={() => openDueDate(row)}
+        />
+      )
+    },
+    {
+      prop: 'trackingNo',
+      label: '计划跟踪号',
+      minWidth: 128,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.trackingNo || '—'
+    },
+    {
+      prop: 'customerCode',
+      label: '客户代码',
+      minWidth: 116,
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.customerCode || '—'
+    },
+    {
+      prop: 'department',
+      label: '生产车间',
+      minWidth: 136,
+      showOverflowTooltip: true,
+      formatter: (row) => row.department?.name || '—'
+    },
+    {
+      prop: 'suggestedQuantity',
+      label: '排产建议数量',
+      width: 154,
+      fixed: 'right',
+      formatter: (row) => (
+        <ElInputNumber
+          v-model={draftFor(row).quantity}
+          min={0}
+          max={availableQuantity(row)}
+          precision={2}
+          controls={false}
+          aria-label={`${row.taskNo}排产建议数量`}
+          class="scheduling-page__quantity-input"
+        />
+      )
+    },
+    {
+      prop: 'suggestedCenter',
+      label: '排产建议工作中心',
+      width: 250,
+      fixed: 'right',
+      formatter: (row) => (
+        <ElSelect
+          v-model={draftFor(row).workCenterId}
+          filterable
+          placeholder="选择工作中心"
+          aria-label={`${row.taskNo}排产建议工作中心`}
+        >
+          {eligibleCenters(row).map((center) => (
+            <ElOption
+              key={center.id}
+              value={center.id}
+              label={`${center.code} ${center.name}｜${centerCapacityHours(center).toFixed(1)} H`}
+            />
+          ))}
+        </ElSelect>
+      )
     },
     {
       prop: 'operation',
       label: '操作',
-      width: 156,
+      width: 130,
       fixed: 'right',
-      align: 'center',
-      useSlot: true
+      formatter: (row) => (
+        <BusinessTableRowActions>
+          <ArtButtonTable
+            type="edit"
+            label="确认"
+            permission="MesOperationTask:Schedule"
+            disabled={
+              row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
+            }
+            onClick={() => confirmTask(row)}
+          />
+          <ArtButtonMore
+            list={taskMore(row)}
+            onClick={(item) => handleTaskMore(row, String(item.key))}
+          />
+        </BusinessTableRowActions>
+      )
     }
   ]
-  const metrics = computed<BusinessWorkspaceMetric[]>(() => [
-    {
-      label: '可排工单',
-      value: schedulableOrders.value.length,
-      description: '已确认且未结案',
-      icon: 'ri:file-list-3-line'
-    },
-    {
-      label: '待排工序',
-      value: state.tasks.filter((task) => scheduleRisk(task, conflicts.value) === 'unassigned')
-        .length,
-      description: '尚未形成完整资源计划',
-      icon: 'ri:time-line',
-      tone: 'warning'
-    },
-    {
-      label: '资源冲突',
-      value: conflicts.value.size,
-      description: '同一中心计划周期重叠',
-      icon: 'ri:alarm-warning-line',
-      tone: conflicts.value.size ? 'danger' : 'success'
-    },
-    {
-      label: '已排工序',
-      value: state.tasks.filter((task) => task.schedulingStatus === 'scheduled').length,
-      description: '可进入现场执行',
-      icon: 'ri:checkbox-circle-line',
-      tone: 'success'
+
+  function matchesText(value: string | null | undefined, keyword: string): boolean {
+    const normalized = keyword.trim().toLocaleLowerCase()
+    return !normalized || Boolean(value?.toLocaleLowerCase().includes(normalized))
+  }
+  function matchesAny(values: Array<string | null | undefined>, keyword: string): boolean {
+    const normalized = keyword.trim().toLocaleLowerCase()
+    return !normalized || values.some((value) => value?.toLocaleLowerCase().includes(normalized))
+  }
+  function quantityText(value: number | null | undefined, unit: string): string {
+    return `${Number(value || 0)}${unit ? ` ${unit}` : ''}`
+  }
+  function availableQuantity(row: MesOperationTask): number {
+    return Math.max(
+      Number(row.plannedQuantity || 0) - Number(row.cumulativeCompletedQuantity || 0),
+      0
+    )
+  }
+  function centerCapacityHours(center: MesProductionScopeCenter): number {
+    const minutes = Number(
+      selectedShift.value?.durationMinutes || center.dailyCapacityMinutes || 480
+    )
+    return (minutes / 60) * Math.max(Number(center.parallelCapacity || 1), 1)
+  }
+  function eligibleCenters(row: MesOperationTask): MesProductionScopeCenter[] {
+    const scoped = scopedWorkCenters.value.length ? scopedWorkCenters.value : state.workCenters
+    return row.eligibleWorkCenterIds.length
+      ? scoped.filter((center) => row.eligibleWorkCenterIds.includes(center.id))
+      : scoped
+  }
+  function draftFor(row: MesOperationTask): ScheduleDraft {
+    if (!drafts[row.id]) {
+      const centers = eligibleCenters(row)
+      drafts[row.id] = {
+        quantity: Number(
+          row.pendingScheduleQuantity || row.scheduledQuantity || availableQuantity(row)
+        ),
+        workCenterId: row.allocations?.[0]?.workCenterId || row.workCenterId || centers[0]?.id || ''
+      }
     }
-  ])
-
-  function tasksForOrder(orderId: string): MesOperationTask[] {
-    return state.tasks
-      .filter((task) => task.workOrderId === orderId)
-      .sort((left, right) => left.sequenceNo - right.sequenceNo)
+    return drafts[row.id]!
   }
-
-  function scheduleProgress(orderId: string): number {
-    const tasks = tasksForOrder(orderId)
-    if (!tasks.length) return 0
-    const scheduled = tasks.filter(
-      (task) => task.workCenterId && task.schedulingStatus !== 'pending'
-    ).length
-    return Math.round((scheduled / tasks.length) * 100)
+  function resetDrafts(): void {
+    Object.keys(drafts).forEach((key) => delete drafts[key])
+    state.tasks.forEach((row) => void draftFor(row))
   }
-
-  function workCenterName(id: string | null): string {
-    if (!id) return '待分配'
-    return state.workCenters.find((center) => center.id === id)?.name || '未知工作中心'
+  function taskMore(row: MesOperationTask) {
+    return [
+      {
+        key: 'allocate',
+        label: '平均分配',
+        icon: 'ri:split-cells-horizontal',
+        auth: 'MesOperationTask:Schedule',
+        disabled: row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
+      },
+      {
+        key: 'annotate',
+        label: '工单批注与加急',
+        icon: 'ri:sticky-note-add-line',
+        auth: 'MesOperationTask:Annotate'
+      },
+      {
+        key: 'due-date',
+        label: '修改要求完工日期',
+        icon: 'ri:calendar-check-line',
+        auth: 'MesOperationTask:MaintainDueDate'
+      },
+      {
+        key: 'close',
+        label: '结案',
+        icon: 'ri:archive-line',
+        auth: 'MesOperationTask:Close',
+        disabled: row.operationStatus === 'started' || row.schedulingStatus === 'closed'
+      }
+    ]
   }
-
-  function riskMeta(task: MesOperationTask): { label: string; type: TagProps['type'] } {
-    const risk = scheduleRisk(task, conflicts.value)
-    const types: Record<typeof risk, TagProps['type']> = {
-      conflict: 'danger',
-      overdue: 'warning',
-      unassigned: 'warning',
-      healthy: 'success'
+  function handleSelectionChange(rows: MesOperationTask[]): void {
+    selectedRows.value = rows
+  }
+  function handleScopeChange(): void {
+    filters.shiftScheduleId = ''
+    taskTableRef.value?.elTableRef?.clearSelection()
+    resetDrafts()
+  }
+  function openAdvancedFilters(): void {
+    void advancedFilterDrawerRef.value?.handleOpen({
+      workOrderNo: filters.workOrderNo,
+      materialKeyword: filters.materialKeyword,
+      specProjectKeyword: filters.specProjectKeyword,
+      trackingCustomerKeyword: filters.trackingCustomerKeyword,
+      schedulingStatus: filters.schedulingStatus
+    })
+  }
+  function applyAdvancedFilters(values: SchedulingAdvancedFilters): void {
+    Object.assign(filters, values)
+    taskTableRef.value?.elTableRef?.clearSelection()
+  }
+  function resetFilters(): void {
+    Object.assign(filters, {
+      departmentId: '',
+      workOrderStartDates: undefined,
+      shiftScheduleId: '',
+      keyword: '',
+      workOrderNo: '',
+      materialKeyword: '',
+      specProjectKeyword: '',
+      trackingCustomerKeyword: '',
+      schedulingStatus: ''
+    })
+    taskTableRef.value?.elTableRef?.clearSelection()
+    resetDrafts()
+  }
+  async function confirmTask(row: MesOperationTask, silent = false): Promise<boolean> {
+    const draft = draftFor(row)
+    const quantity = Number(draft.quantity || 0)
+    if (!draft.workCenterId) {
+      if (!silent) ElMessage.warning('请选择排产建议工作中心')
+      return false
     }
-    return { label: scheduleRiskLabel(risk), type: types[risk] }
+    if (quantity <= 0) {
+      if (!silent) ElMessage.warning('排产建议数量必须大于 0')
+      return false
+    }
+    if (quantity > availableQuantity(row)) {
+      if (!silent) ElMessage.warning('排产数量大于待排产数量')
+      return false
+    }
+    const plannedStartDate =
+      row.requiredStartDate ||
+      row.plannedStartDate ||
+      row.workOrder?.plannedStartDate ||
+      dayjs().format('YYYY-MM-DD')
+    const plannedEndDate =
+      row.requiredCompletionDate ||
+      row.plannedEndDate ||
+      row.workOrder?.plannedEndDate ||
+      plannedStartDate
+    await confirmOperationTaskSchedule(
+      {
+        id: row.id,
+        workCenterId: draft.workCenterId,
+        quantity,
+        plannedStartDate,
+        plannedEndDate,
+        shiftScheduleId: filters.shiftScheduleId || null
+      },
+      { showMessage: !silent }
+    )
+    return true
   }
-
-  function openSchedule(row: MesOperationTask): void {
-    void scheduleDialogRef.value?.handleOpen({ row, workCenters: state.workCenters })
+  async function confirmSelected(): Promise<void> {
+    if (!selectedRows.value.length) return
+    const invalid = selectedRows.value.find((row) => {
+      const draft = draftFor(row)
+      return (
+        !draft.workCenterId ||
+        Number(draft.quantity || 0) <= 0 ||
+        Number(draft.quantity) > availableQuantity(row)
+      )
+    })
+    if (invalid) {
+      if (Number(draftFor(invalid).quantity) > availableQuantity(invalid))
+        ElMessage.warning('排产数量大于待排产数量')
+      else ElMessage.warning(`请完善任务 ${invalid.taskNo} 的排产建议数量和工作中心`)
+      return
+    }
+    await confirmAction(
+      `将确认所选 ${selectedRows.value.length} 条工序任务的排产建议，是否继续？`,
+      '批量确认排产',
+      { confirmButtonText: '确认排产' }
+    )
+    state.batchBusy = true
+    try {
+      const results = await Promise.allSettled(
+        selectedRows.value.map((row) => confirmTask(row, true))
+      )
+      const successCount = results.filter(
+        (result) => result.status === 'fulfilled' && result.value
+      ).length
+      const failedCount = results.length - successCount
+      if (failedCount)
+        ElMessage.warning(`批量确认完成：成功 ${successCount} 条，失败 ${failedCount} 条`)
+      else ElMessage.success(`已确认 ${successCount} 条工序任务`)
+      taskTableRef.value?.elTableRef?.clearSelection()
+      await loadWorkspace()
+    } finally {
+      state.batchBusy = false
+    }
   }
-
-  async function toggleTaskLock(row: MesOperationTask): Promise<void> {
-    await setOperationTaskScheduleLock(row.id, !row.scheduleLocked)
-    await loadWorkspace()
+  async function closeTaskIds(ids: string[]): Promise<void> {
+    const rows = state.tasks.filter((task) => ids.includes(task.id))
+    if (!rows.length) return
+    await confirmAction(`确定结案所选 ${rows.length} 条工序任务吗？`, '批量结案', {
+      confirmButtonText: '确认结案'
+    })
+    state.batchBusy = true
+    try {
+      const result = await batchTransitionOperationTasks(
+        rows.map((row) => row.id),
+        'close'
+      )
+      if (result.failures.length)
+        ElMessage.warning(
+          `批量结案完成：成功 ${result.successIds.length} 条，失败 ${result.failures.length} 条`
+        )
+      else ElMessage.success(`已结案 ${result.successIds.length} 条工序任务`)
+      taskTableRef.value?.elTableRef?.clearSelection()
+      await loadWorkspace()
+    } finally {
+      state.batchBusy = false
+    }
   }
-
-  function goToWorkOrders(): void {
-    void router.push('/mes/production-plan/work-order')
+  function closeSelected(): void {
+    void closeTaskIds(selectedRows.value.map((row) => row.id))
   }
-
+  function openDueDate(row: MesOperationTask): void {
+    void dueDateDialogRef.value?.handleOpen({ rows: [row] })
+  }
+  function openAllocation(row: MesOperationTask): void {
+    void allocationDialogRef.value?.handleOpen({
+      row,
+      workCenters: scopedWorkCenters.value,
+      shifts: availableShifts.value,
+      shiftScheduleId: filters.shiftScheduleId
+    })
+  }
+  async function handleTaskMore(row: MesOperationTask, command: string): Promise<void> {
+    if (command === 'allocate') {
+      openAllocation(row)
+      return
+    }
+    if (command === 'annotate') {
+      await annotationDialogRef.value?.handleOpen({ row })
+      return
+    }
+    if (command === 'due-date') {
+      openDueDate(row)
+      return
+    }
+    if (command === 'close') {
+      await confirmAction(`确定将工序任务“${row.operationName}”结案吗？`, '工序任务结案', {
+        confirmButtonText: '确认结案'
+      })
+      await transitionOperationTask(row.id, 'close')
+      await loadWorkspace()
+    }
+  }
+  function readImportCell(row: Record<string, unknown>, keys: string[]): string {
+    const key = keys.find((item) => row[item] !== undefined)
+    return key ? String(row[key] ?? '').trim() : ''
+  }
+  async function handleScheduleImport(rows: Array<Record<string, unknown>>): Promise<void> {
+    if (!rows.length) {
+      ElMessage.warning('导入文件中没有可处理的数据')
+      return
+    }
+    state.importing = true
+    try {
+      let successCount = 0
+      const failures: string[] = []
+      for (const [index, imported] of rows.entries()) {
+        const taskNo = readImportCell(imported, ['任务单号', 'taskNo'])
+        const centerCode = readImportCell(imported, ['工作中心编号', 'workCenterCode'])
+        const quantity = Number(readImportCell(imported, ['排产数量', 'quantity']))
+        const task = state.tasks.find((item) => item.taskNo === taskNo)
+        const center = state.workCenters.find(
+          (item) => item.code === centerCode || item.name === centerCode
+        )
+        if (!task || !center || !Number.isFinite(quantity) || quantity <= 0) {
+          failures.push(`第 ${index + 2} 行任务、工作中心或数量无效`)
+          continue
+        }
+        if (quantity > availableQuantity(task)) {
+          failures.push(`第 ${index + 2} 行排产数量大于待排产数量`)
+          continue
+        }
+        const startDate =
+          readImportCell(imported, ['计划开始日期', 'plannedStartDate']) ||
+          task.requiredStartDate ||
+          task.workOrder?.plannedStartDate ||
+          dayjs().format('YYYY-MM-DD')
+        const endDate =
+          readImportCell(imported, ['计划结束日期', 'plannedEndDate']) ||
+          task.requiredCompletionDate ||
+          task.workOrder?.plannedEndDate ||
+          startDate
+        try {
+          await confirmOperationTaskSchedule(
+            {
+              id: task.id,
+              workCenterId: center.id,
+              quantity,
+              plannedStartDate: startDate,
+              plannedEndDate: endDate,
+              shiftScheduleId: filters.shiftScheduleId || null
+            },
+            { showMessage: false }
+          )
+          successCount += 1
+        } catch {
+          failures.push(`第 ${index + 2} 行排产失败`)
+        }
+      }
+      if (failures.length)
+        ElMessage.warning(
+          `导入完成：成功 ${successCount} 条，失败 ${failures.length} 条。${failures[0]}`
+        )
+      else ElMessage.success(`已导入并确认 ${successCount} 条排产任务`)
+      await loadWorkspace()
+    } finally {
+      state.importing = false
+    }
+  }
+  function handleImportError(): void {
+    ElMessage.error('排产文件读取失败，请使用有效的 Excel 文件')
+  }
   function goToRules(): void {
-    void router.push('/mes/production-plan/scheduling-rules')
+    void router.push({ name: 'MesSchedulingRule' })
   }
-
-  function openAutoSchedule(): void {
-    if (!selectedOrder.value) return
-    void autoScheduleDialogRef.value?.handleOpen({ order: selectedOrder.value, rules: state.rules })
+  function goToGantt(): void {
+    void router.push({
+      name: 'MesSchedulingGantt',
+      query: { shift: filters.shiftScheduleId || undefined }
+    })
+  }
+  function goToDailyPlan(): void {
+    void router.push({
+      name: 'MesOperationTask',
+      query: { view: 'daily', shift: filters.shiftScheduleId || undefined }
+    })
   }
 
   let requestId = 0
@@ -515,23 +1013,24 @@
     try {
       await tenantScopeStore.loadTenantOptions()
       const tenantId = effectiveTenantId.value || undefined
-      const [orders, tasks, references, rules] = await Promise.all([
-        fetchWorkOrders({ current: 1, size: 300, tenantId }),
-        fetchOperationTasks({ current: 1, size: 1000, tenantId }),
-        fetchMesReferences(tenantId),
-        fetchSchedulingRules(tenantId)
+      const [tasks, scope, context] = await Promise.all([
+        fetchOperationTasks({ current: 1, size: 2000, tenantId }),
+        fetchOperationTaskScope(effectiveTenantId.value),
+        fetchSchedulingContext()
       ])
       if (request !== requestId) return
-      state.orders = orders.data
-      state.tasks = tasks.data
-      state.workCenters = references.workCenters
-      state.rules = rules
-      if (!queueOrders.value.some((order) => order.id === selectedOrderId.value)) {
-        selectedOrderId.value =
-          queueOrders.value.find((order) => order.status === 'confirmed')?.id ||
-          queueOrders.value[0]?.id ||
-          ''
-      }
+      Object.assign(state, {
+        tasks: tasks.data,
+        departments: scope.departments,
+        workCenters: scope.workCenters,
+        shifts: context.shifts,
+        lastLoadedAt: dayjs().format('HH:mm:ss')
+      })
+      if (!state.departments.some((item) => item.id === filters.departmentId))
+        filters.departmentId = ''
+      if (!state.shifts.some((item) => item.id === filters.shiftScheduleId))
+        filters.shiftScheduleId = ''
+      resetDrafts()
     } catch {
       if (request === requestId) state.error = '排产数据加载失败，请检查网络后重试。'
     } finally {
@@ -539,7 +1038,23 @@
     }
   }
 
-  watch(effectiveTenantId, loadWorkspace, { immediate: true })
+  const refreshFromRealtime = useDebounceFn(() => void loadWorkspace(), 500)
+  let unsubscribeRealtime: (() => void) | undefined
+  watch(
+    effectiveTenantId,
+    async () => {
+      unsubscribeRealtime?.()
+      state.realtimeConnected = false
+      await loadWorkspace()
+      unsubscribeRealtime = subscribeMesSchedulingChanges(effectiveTenantId.value, () => {
+        state.realtimeConnected = true
+        refreshFromRealtime()
+      })
+      state.realtimeConnected = true
+    },
+    { immediate: true }
+  )
+  onUnmounted(() => unsubscribeRealtime?.())
 </script>
 
 <style scoped lang="scss">
@@ -554,296 +1069,164 @@
       gap: 0;
     }
 
-    &__workspace {
+    &__filters {
+      flex: none;
+      padding: 12px 14px;
+    }
+
+    &__filter-grid {
       display: grid;
-      grid-template-rows: minmax(0, 1fr);
-      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+      grid-template-columns:
+        minmax(190px, 0.9fr) minmax(260px, 1.2fr) minmax(190px, 0.9fr) minmax(320px, 1.8fr)
+        auto;
       gap: var(--art-space-3);
-      min-width: 0;
-      height: 0;
+      align-items: end;
+
+      label {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+
+        > span {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--el-text-color-secondary);
+        }
+
+        > .el-select,
+        > .el-date-editor {
+          width: 100%;
+        }
+      }
+    }
+
+    &__filter-actions {
+      display: flex;
+      gap: var(--art-space-2);
+
+      .el-button + .el-button {
+        margin-left: 0;
+      }
+    }
+
+    &__workspace {
+      position: relative;
+      display: grid;
+      flex: 1;
+      grid-template-columns: minmax(720px, 1fr) minmax(430px, 36%);
+      gap: var(--art-space-3);
       min-height: 0;
 
-      > :deep(.art-section-card) {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        min-height: 0;
-        overflow: hidden;
-      }
-
-      :deep(.art-section-card__header) {
-        flex: none;
-        margin-bottom: var(--art-space-3);
-      }
-
-      :deep(.scheduling-page__card-body) {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        min-height: 0;
-      }
-
-      :deep(.art-async-state__empty) {
-        flex: 1;
+      &.is-overview-collapsed {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
 
-    &__queue-tools {
-      display: grid;
-      flex: none;
-      gap: 6px;
-      padding-bottom: var(--art-space-3);
-
-      > span {
-        font-size: 11px;
-        line-height: 1.5;
-        color: var(--el-text-color-secondary);
-      }
+    &__task-card,
+    &__overview {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
     }
 
-    &__row-actions {
+    &__task-card {
       display: flex;
-      gap: 6px;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+      height: 100%;
+
+      :deep(.scheduling-page__task-body) {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        padding: 0;
+      }
+
+      :deep(.art-async-state),
+      :deep(.art-async-state__content) {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+      }
     }
 
-    &__order-scrollbar {
+    &__table {
       flex: 1;
       min-width: 0;
       min-height: 0;
-    }
 
-    &__order-scrollbar :deep(.el-scrollbar__view) {
-      min-height: 100%;
-    }
-
-    &__order-list {
-      display: grid;
-      gap: var(--art-space-2);
-      padding-right: var(--art-space-2);
-      padding-bottom: 2px;
-    }
-
-    &__order {
-      position: relative;
-      display: grid;
-      gap: 7px;
-      width: 100%;
-      padding: 13px 14px 12px;
-      overflow: hidden;
-      color: var(--el-text-color-primary);
-      text-align: left;
-      cursor: pointer;
-      background: var(--art-gray-100);
-      border: 1px solid transparent;
-      border-radius: var(--art-control-radius);
-      transition:
-        border-color 0.18s ease,
-        background-color 0.18s ease;
-
-      &:hover,
-      &:focus-visible,
-      &.is-active {
-        outline: none;
-        background: color-mix(in srgb, var(--theme-color) 7%, var(--default-box-color));
-        border-color: color-mix(in srgb, var(--theme-color) 45%, var(--el-border-color));
+      :deep(.el-table__cell) {
+        padding: 7px 0;
       }
 
-      > i {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        height: 3px;
-        background: var(--theme-color);
+      :deep(.el-table__fixed-right) {
+        box-shadow: -8px 0 18px color-mix(in srgb, var(--el-text-color-primary) 8%, transparent);
       }
     }
 
-    &__order-head,
-    &__order-foot {
-      display: flex;
-      gap: var(--art-space-2);
-      align-items: center;
-      justify-content: space-between;
-      min-width: 0;
-    }
-
-    &__order-head strong {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 14px;
-      white-space: nowrap;
-    }
-
-    &__product,
-    &__order-foot {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
-      white-space: nowrap;
-    }
-
-    &__order-blocker {
-      display: flex;
+    &__sync-state {
+      display: inline-flex;
       gap: 6px;
       align-items: center;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      min-height: 30px;
+      padding: 0 9px;
       font-size: 11px;
-      color: var(--el-color-danger);
-      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      color: var(--el-text-color-secondary);
+      background: var(--art-gray-100);
+      border-radius: var(--art-control-radius);
 
-      :deep(.art-svg-icon) {
-        flex: none;
+      i {
+        width: 7px;
+        height: 7px;
+        background: var(--el-color-info);
+        border-radius: 50%;
+
+        &.is-live {
+          background: var(--el-color-success);
+          box-shadow: 0 0 0 3px var(--el-color-success-light-8);
+        }
       }
     }
 
-    &__order-meta {
+    &__order-type {
       display: inline-flex;
       gap: 4px;
       align-items: center;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
-    &__health {
-      display: grid;
-      flex: none;
-      grid-template-columns: repeat(3, minmax(110px, 0.7fr)) minmax(240px, 1.5fr);
-      margin-bottom: var(--art-space-3);
-      background: var(--art-gray-100);
-      border-radius: var(--art-control-radius);
+    &__quantity-input {
+      width: 100%;
+    }
 
-      > div {
-        display: grid;
-        gap: 3px;
-        padding: 11px 14px;
-
-        &:not(:last-child) {
-          border-right: 1px solid var(--el-border-color-lighter);
-        }
+    @media (width <= 1380px) {
+      &__filter-grid {
+        grid-template-columns: repeat(4, minmax(170px, 1fr));
       }
 
-      span {
-        display: flex;
-        gap: 6px;
-        align-items: center;
-        font-size: 11px;
-        color: var(--el-text-color-secondary);
-
-        i {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-
-          &.is-primary {
-            background: var(--theme-color);
-          }
-
-          &.is-warning {
-            background: var(--el-color-warning);
-          }
-
-          &.is-danger {
-            background: var(--el-color-danger);
-          }
-
-          &.is-info {
-            background: var(--el-color-info);
-          }
-        }
+      &__filter-actions {
+        grid-column: 4;
+        justify-content: flex-end;
       }
 
-      strong {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 16px;
-        font-variant-numeric: tabular-nums;
-        color: var(--el-text-color-primary);
-        white-space: nowrap;
+      &__workspace {
+        grid-template-columns: minmax(650px, 1fr) minmax(360px, 34%);
       }
-    }
-
-    &__task-table {
-      flex: 1;
-      min-width: 0;
-      min-height: 0;
-    }
-
-    &__sequence {
-      font-variant-numeric: tabular-nums;
-      color: var(--theme-color);
-    }
-
-    &__operation-name {
-      display: grid;
-      gap: 3px;
-
-      strong {
-        color: var(--el-text-color-primary);
-      }
-
-      small {
-        color: var(--el-text-color-secondary);
-      }
-    }
-
-    &__planned-period {
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-
-    &__queue-empty {
-      flex: 1;
-      min-height: 280px;
     }
 
     @media (width <= 1100px) {
-      &__workspace {
-        grid-template-columns: 280px minmax(0, 1fr);
-      }
-
-      &__health {
+      &__filter-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      &__health > div:nth-child(2) {
-        border-right: 0;
+      &__filter-keyword,
+      &__filter-actions {
+        grid-column: span 2;
       }
 
-      &__health > div:nth-child(-n + 2) {
-        border-bottom: 1px solid var(--el-border-color-lighter);
-      }
-    }
-
-    @media (width <= 760px) {
       &__workspace {
-        grid-template-rows: minmax(360px, auto) minmax(460px, auto);
-        grid-template-columns: 1fr;
-        height: auto;
-        overflow: visible;
-      }
-
-      &__workspace > :deep(.art-section-card) {
-        height: auto;
-      }
-
-      &__order-list {
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      }
-
-      &__order-scrollbar,
-      &__task-table {
-        min-height: 280px;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      &__order {
-        transition: none;
+        grid-template-columns: minmax(610px, 1fr) 330px;
       }
     }
   }

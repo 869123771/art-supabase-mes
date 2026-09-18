@@ -65,7 +65,7 @@
               :header-actions="headerActions"
               :selection-actions="selectionActions"
               header-actions-placement="workspace"
-              :search-bar-props="{ span: 6, labelWidth: 82, showExpand: false }"
+              :search-bar-props="{ span: 6, labelWidth: 82, defaultExpanded: !isWorkOrder }"
               :table-props="queryTableProps"
               :focus-scope-selector="isWorkOrder ? undefined : '.manufacturing-page__workspace'"
               focusable
