@@ -7,6 +7,7 @@ import type {
   MesBatchResult,
   MesAutoScheduleResult,
   MesGanttCalendarDay,
+  MesMaterialCategory,
   MesMaterialOption,
   MesMaterialOptionQuery,
   MesOperationTask,
@@ -557,10 +558,26 @@ export async function fetchMesMaterialOptions(
       supabase.rpc('mes_work_order_material_options', {
         p_tenant_id: params.tenantId,
         p_keyword: normalizeNullableText(params.keyword),
+        p_category_id: normalizeNullableText(params.categoryId),
         p_page: params.current,
         p_page_size: params.size
       }),
     { ...readOptions, showErrorMessage: false }
   )
   return { data: data?.data ?? [], total: data?.total ?? 0 }
+}
+
+export async function fetchMesMaterialCategories(tenantId: string): Promise<MesMaterialCategory[]> {
+  const { data } = await responseHandle<MesMaterialCategory[]>(
+    () =>
+      supabase
+        .from('mdm_material_category')
+        .select('id,tenant_id,parent_id,category_code,category_name,sort')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'enabled')
+        .order('sort')
+        .order('category_name'),
+    readOptions
+  )
+  return data ?? []
 }

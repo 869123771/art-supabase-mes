@@ -59,7 +59,18 @@ export interface MesSchedulingContext {
 
 export interface MesMaterialOption extends MesReferenceOption {
   tenantId: string
+  categoryId: string
+  materialCode: string
+  materialName: string
+  specificationModel?: string
   drawingNo?: string
+  materialComposition?: string
+  brand?: string
+  materialType?: string
+  materialSource?: string
+  specialPurchaseType?: string
+  category?: { id: string; categoryCode: string; categoryName: string } | null
+  materialTypeRef?: { id: string; typeCode: string; typeName: string } | null
   productionUnitId?: string
   productionUnitName?: string
   plannerId?: string
@@ -77,6 +88,15 @@ export interface MesMaterialOption extends MesReferenceOption {
   schedulingStrategy?: 'inherit' | SchedulingDirection
   planningTimeFenceDays?: number
   batchRoundingQuantity?: number
+}
+
+export interface MesMaterialCategory {
+  id: string
+  tenantId: string
+  parentId: string | null
+  categoryCode: string
+  categoryName: string
+  sort: number
 }
 
 export interface MesWorkOrderBomItemSnapshot {
@@ -507,6 +527,7 @@ export interface MesBatchResult {
 export interface MesMaterialOptionQuery {
   tenantId: string
   keyword?: string
+  categoryId?: string
   current: number
   size: number
 }

@@ -8,11 +8,15 @@
         :icon="icon"
         :tags="workspaceTags"
         :metrics="metrics"
+        density="compact"
       >
         <template #actions><BusinessTableWorkspaceActions :table="tableRef" /></template>
       </BusinessWorkspaceHeader>
 
-      <div class="manufacturing-page__workspace" :class="{ 'is-task-workspace': !isWorkOrder }">
+      <div
+        class="manufacturing-page__workspace business-workspace-content"
+        :class="{ 'is-task-workspace': !isWorkOrder }"
+      >
         <ArtWorkspaceSplitter
           primary-size="300px"
           primary-min="256px"
@@ -1584,8 +1588,8 @@
     min-height: 0;
 
     &__workspace {
-      flex: 1;
-      min-height: 520px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     &__main {
@@ -1606,6 +1610,13 @@
       gap: 6px;
       align-items: center;
       min-width: 0;
+      max-width: 100%;
+
+      > span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
 
     &__scope-expand {
@@ -1618,19 +1629,10 @@
       color: var(--art-gray-700);
     }
 
-    &__order-type {
-      max-width: 100%;
-
-      > span:first-child {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-    }
-
     @media (width <= 960px) {
       &__workspace.is-task-workspace {
         min-height: 960px;
+        overflow: visible;
       }
     }
   }

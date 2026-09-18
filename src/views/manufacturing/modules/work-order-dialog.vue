@@ -27,18 +27,14 @@
         :show-submit="false"
       >
         <template #materialId>
-          <ArtTableSingleSelect
-            :model-value="model.materialId || undefined"
+          <ArtMaterialSelect
+            v-model="model.materialId"
             :selected-data="selectedMaterial ? [selectedMaterial] : []"
             :api-fn="fetchMaterialOptions"
-            :columns="materialColumns"
-            :label-key="materialDescription"
-            description-key="code"
-            title="选择物料描述"
-            subtitle="支持物料编码、名称、规格型号和图号综合查询"
+            :categories="materialCategories"
+            subtitle="按物料分类筛选；选择后自动带入生产单位、计划员与生产提前期"
             placeholder="请选择物料描述"
-            search-placeholder="搜索物料编码、名称、规格型号或图号"
-            show-pagination
+            empty-description="请先维护物料编码后再创建生产工单。"
             :disabled="locked"
             @change="handleMaterialChange"
           />
@@ -74,7 +70,7 @@
   import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtForm, { type FormItem } from '@/components/core/forms/art-form/index.vue'
-  import ArtTableSingleSelect from '@/components/core/forms/art-data-select/table-single.vue'
+  import ArtMaterialSelect from '@/components/business/art-material-select/index.vue'
   import type {
     DataSelectFetchParams,
     DataSelectRecord
@@ -91,9 +87,11 @@
     calculateProductionDays
   } from './work-order-plan'
   import {
+    fetchMesMaterialCategories,
     fetchMesMaterialOptions,
     fetchMesReferences,
     saveWorkOrder,
+    type MesMaterialCategory,
     type MesMaterialOption,
     type MesReferences,
     type MesWorkOrder,
@@ -176,6 +174,7 @@
     salesOrderQuantity: null
   })
   const selectedMaterial = shallowRef<MesMaterialOption>()
+  const materialCategories = ref<MesMaterialCategory[]>([])
   const currentId = ref('')
   const heading = computed(() =>
     readonly.value ? '工单详情' : currentId.value ? '编辑工单' : '新增工单'
@@ -184,21 +183,6 @@
     items.map((item) => ({ label: `${item.name} · ${item.code}`, value: item.id }))
   const locked = computed(() => readonly.value)
   const dictionaryOptions = (code: string) => getDictMap.value[code] ?? []
-  const materialDescription = (row: DataSelectRecord): string => {
-    const material = row as MesMaterialOption
-    return [material.name, material.specification, material.drawingNo].filter(Boolean).join(' · ')
-  }
-  const materialColumns = [
-    { prop: 'code', label: '物料编码', minWidth: 150 },
-    { prop: 'name', label: '物料描述', minWidth: 180 },
-    { prop: 'specification', label: '规格型号', minWidth: 140 },
-    { prop: 'drawingNo', label: '图号', minWidth: 120 },
-    { prop: 'productionUnitName', label: '生产单位', minWidth: 110 },
-    { prop: 'plannerName', label: '计划员', minWidth: 110 },
-    { prop: 'dispatcherName', label: '调度员', minWidth: 110 },
-    { prop: 'inboundWarehouseName', label: '入库仓库', minWidth: 130 },
-    { prop: 'productionDays', label: '生产天数', width: 100, align: 'right' as const }
-  ]
   const employeeSelection = (id?: string | null): EmployeeIntegrationItem[] => {
     const item = references.value.employees.find((employee) => employee.id === id)
     return item
@@ -378,7 +362,12 @@
   }
 
   async function loadReferences() {
-    references.value = await fetchMesReferences(model.tenantId)
+    const [nextReferences, nextMaterialCategories] = await Promise.all([
+      fetchMesReferences(model.tenantId),
+      fetchMesMaterialCategories(model.tenantId)
+    ])
+    references.value = nextReferences
+    materialCategories.value = nextMaterialCategories
   }
   async function handleTenantChange(): Promise<void> {
     applyMaterial()
@@ -389,6 +378,7 @@
     return fetchMesMaterialOptions({
       tenantId: model.tenantId,
       keyword: params.keyword,
+      categoryId: String(params.filters.categoryId || '') || undefined,
       current: params.page,
       size: params.pageSize
     })
@@ -423,8 +413,8 @@
     selectedMaterial.value = material
     Object.assign(model, {
       materialId: material?.id || '',
-      materialCode: material?.code || '',
-      specificationModel: material?.specification || '',
+      materialCode: material?.materialCode || material?.code || '',
+      specificationModel: material?.specificationModel || material?.specification || '',
       drawingNo: material?.drawingNo || '',
       productionUnitName: material?.productionUnitName || material?.unit || '',
       plannerName: material?.plannerName || '',
@@ -497,6 +487,10 @@
           code: data.row.materialCodeSnapshot,
           name: data.row.materialNameSnapshot,
           specification: data.row.specificationSnapshot,
+          categoryId: '',
+          materialCode: data.row.materialCodeSnapshot,
+          materialName: data.row.materialNameSnapshot,
+          specificationModel: data.row.specificationSnapshot,
           drawingNo: data.row.drawingNoSnapshot,
           unit: data.row.unitSnapshot,
           productionUnitId: data.row.productionUnitId || undefined,
@@ -558,9 +552,13 @@
     )
     if (selectedMaterial.value) applyMaterial(selectedMaterial.value, false)
     await Promise.all(
-      ['mesWorkOrderSource', 'mesWorkOrderUrgency', 'mesWorkOrderStatus'].map((code) =>
-        userStore.ensureDictLoaded(code)
-      )
+      [
+        'mesWorkOrderSource',
+        'mesWorkOrderUrgency',
+        'mesWorkOrderStatus',
+        'mdmMaterialSource',
+        'mdmMaterialSpecialPurchaseType'
+      ].map((code) => userStore.ensureDictLoaded(code))
     )
     await dialogRef.value?.handleOpen(data, {
       title: heading.value,
