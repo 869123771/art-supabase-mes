@@ -1,4 +1,6 @@
 export type WorkOrderStatus = 'pending' | 'abnormal' | 'confirmed' | 'closed'
+export type WorkOrderDisplayStatus =
+  'CRTD' | 'ABNORMAL' | 'REL' | 'PCNF' | 'CNF' | 'PDLV' | 'DLV' | 'TECO' | 'CLSD'
 export type WorkOrderUrgency = 'normal' | 'urgent1' | 'urgent2' | 'urgent3'
 export type OperationTaskStatus = 'unscheduled' | 'scheduled' | 'processing' | 'closed'
 export type OperationSchedulingStatus = 'no_schedule' | 'pending' | 'scheduled' | 'closed'
@@ -119,6 +121,17 @@ export interface MesWorkOrderBomItemSnapshot {
   assignmentSource: 'configured' | 'first_operation' | 'unassigned'
   sourcePath: string[]
   virtualUnexpanded: boolean
+  scrapRate?: number
+  mrpEnabled?: boolean
+  defaultIssueWarehouseId?: string | null
+  issueMethod?: string
+  backflushMethod?: string
+  overIssueControlMethod?: string | null
+  projectText?: string | null
+  processRouteStepId?: string | null
+  effectiveFrom?: string | null
+  effectiveTo?: string | null
+  remark?: string | null
 }
 
 export interface MesWorkOrderBomSnapshot {
@@ -170,6 +183,15 @@ export interface MesWorkOrderRouteStepSnapshot {
   isLast: boolean
   critical: boolean
   description: string
+  sequenceId?: string | null
+  sequenceRemark?: string
+  operationId?: string | null
+  controlCodeId?: string | null
+  unitConversion?: Record<string, unknown>
+  activities?: Array<Record<string, unknown>>
+  outsourcing?: Record<string, unknown>
+  inspection?: Record<string, unknown>
+  sopDocuments?: Array<Record<string, unknown>>
 }
 
 export interface MesWorkOrderRouteSnapshot {
@@ -178,6 +200,20 @@ export interface MesWorkOrderRouteSnapshot {
   code?: string
   version?: string
   steps?: MesWorkOrderRouteStepSnapshot[]
+}
+
+export interface MesSnapshotReference {
+  id: string
+  code?: string
+  name: string
+}
+
+export interface MesWorkOrderSnapshotReferences {
+  materials: MesSnapshotReference[]
+  units: MesSnapshotReference[]
+  warehouses: MesSnapshotReference[]
+  departments: MesSnapshotReference[]
+  workCenters: MesSnapshotReference[]
 }
 
 export interface MesReferences {
@@ -217,6 +253,7 @@ export interface MesWorkOrder {
   source: string
   urgency: WorkOrderUrgency
   status: WorkOrderStatus
+  orderStatus: WorkOrderDisplayStatus
   statusReason: string | null
   remark: string
   specialRequirement: string | null
@@ -287,6 +324,7 @@ export interface MesOperationTask {
   taskNo: string
   workOrderId: string
   routeStepId: string | null
+  routeStepSnapshotId?: string | null
   sequenceNo: number
   sequenceType: string
   operationCode: string
@@ -349,6 +387,8 @@ export interface MesOperationTask {
     | 'workOrderTypeNameSnapshot'
     | 'projectNameSnapshot'
     | 'constructionNo'
+    | 'plannerNameSnapshot'
+    | 'dispatcherNameSnapshot'
     | 'materialCodeSnapshot'
     | 'materialNameSnapshot'
     | 'specificationSnapshot'

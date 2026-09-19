@@ -107,10 +107,17 @@ export function taskQuantitySummary(
   workCenterId: string
 ): TaskQuantitySummary {
   const centerAllocations = allocationsForCenter(task, workCenterId)
+  const defaultCenterId = defaultWorkCenterIdForTask(task)
+  const hasActiveAllocations = (task.allocations || []).some(
+    (allocation) => allocation.status !== 'closed'
+  )
   const assigned = centerAllocations.length
     ? centerAllocations.reduce((total, allocation) => total + Number(allocation.quantity || 0), 0)
-    : task.workCenterId === workCenterId
-      ? Number(task.scheduledQuantity || task.plannedQuantity || 0)
+    : !hasActiveAllocations && defaultCenterId === workCenterId
+      ? Math.max(
+          Number(task.plannedQuantity || 0) - Number(task.cumulativeCompletedQuantity || 0),
+          0
+        )
       : 0
   const scheduled = centerAllocations
     .filter((allocation) => allocation.shiftIndex)
@@ -121,7 +128,7 @@ export function taskQuantitySummary(
         (total, allocation) => total + Number(completionMap.get(allocation.id) || 0),
         0
       )
-    : task.workCenterId === workCenterId
+    : !hasActiveAllocations && defaultCenterId === workCenterId
       ? Number(task.cumulativeCompletedQuantity || task.completedQuantity || 0)
       : 0
   return {
@@ -138,9 +145,18 @@ export function routeStepForTask(
 ): MesWorkOrderRouteStepSnapshot | undefined {
   const steps = task.workOrder?.routeSnapshot?.steps || []
   return (
-    steps.find((step) => step.id === task.routeStepId) ||
+    steps.find((step) => step.id === (task.routeStepSnapshotId || task.routeStepId)) ||
     steps.find((step) => step.operationCode === task.operationCode)
   )
+}
+
+export function defaultWorkCenterIdForTask(task: MesOperationTask): string | null {
+  if (task.workCenterId) return task.workCenterId
+  if (Number(task.scheduleVersion || 0) > 0) return null
+  const step = routeStepForTask(task)
+  if (step?.workCenterId) return step.workCenterId
+  const eligible = task.eligibleWorkCenterIds || []
+  return eligible.length === 1 ? eligible[0]! : null
 }
 
 export function theoreticalShiftQuantity(task: MesOperationTask, workMinutes: number): number {

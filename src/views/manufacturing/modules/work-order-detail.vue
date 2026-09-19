@@ -20,6 +20,7 @@
   import ArtSectionTitle from '@/components/core/surfaces/art-section-title/index.vue'
   import type { MesReferenceOption, MesReferences, MesWorkOrder } from '@mes/api'
   import WorkOrderUrgencyLabel from './work-order-urgency-label.vue'
+  import { workOrderStatusMeta } from './work-order-status'
 
   const props = defineProps<{
     record: MesWorkOrder
@@ -62,11 +63,10 @@
           },
           { key: 'constructionNo', label: '施工编号', field: 'constructionNo' },
           {
-            key: 'status',
-            label: '业务状态',
-            field: 'status',
-            dictCode: 'mesWorkOrderStatus',
-            dictDisplay: 'tag'
+            key: 'orderStatus',
+            label: '工单状态',
+            field: 'orderStatus',
+            formatter: (_value, row) => workOrderStatusMeta[row.orderStatus]?.label || '—'
           },
           { key: 'statusReason', label: '状态说明', field: 'statusReason', span: 2 }
         ]

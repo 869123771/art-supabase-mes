@@ -25,6 +25,9 @@ import type {
   MesSchedulingRuleInput,
   MesSchedulingContext,
   MesWorkOrder,
+  MesWorkOrderBomSnapshot,
+  MesWorkOrderRouteSnapshot,
+  MesWorkOrderSnapshotReferences,
   MesWorkOrderInput
 } from './manufacturing.types'
 
@@ -56,17 +59,27 @@ export async function fetchWorkOrders(params: MesListQuery, options?: { signal?:
     (status): status is string => Boolean(status)
   )
   const includesDeleted = statuses.includes('__deleted')
-  const allowedStatuses = new Set(['pending', 'abnormal', 'confirmed', 'closed'])
+  const allowedStatuses = new Set([
+    'CRTD',
+    'ABNORMAL',
+    'REL',
+    'PCNF',
+    'CNF',
+    'PDLV',
+    'DLV',
+    'TECO',
+    'CLSD'
+  ])
   const activeStatuses = statuses.filter((status) => allowedStatuses.has(status))
   if (includesDeleted && activeStatuses.length) {
     query = query.or(
-      `deleted_at.not.is.null,and(deleted_at.is.null,status.in.(${activeStatuses.join(',')}))`
+      `deleted_at.not.is.null,and(deleted_at.is.null,order_status.in.(${activeStatuses.join(',')}))`
     )
   } else if (includesDeleted) {
     query = query.not('deleted_at', 'is', null)
   } else {
     if (!params.includeDeleted) query = query.is('deleted_at', null)
-    if (activeStatuses.length) query = query.in('status', activeStatuses)
+    if (activeStatuses.length) query = query.in('order_status', activeStatuses)
   }
   if (params.plannedDates?.[0]) query = query.gte('planned_end_date', params.plannedDates[0])
   if (params.plannedDates?.[1]) query = query.lte('planned_end_date', params.plannedDates[1])
@@ -130,6 +143,139 @@ export async function reloadWorkOrderSnapshot(id: string) {
     message: '已重读最新 BOM 与工艺路线'
   })
   return data
+}
+
+export async function saveWorkOrderSnapshot(
+  id: string,
+  mode: 'bom' | 'route',
+  snapshot: MesWorkOrderBomSnapshot[] | MesWorkOrderRouteSnapshot
+) {
+  const { data } = await responseHandle<MesWorkOrder>(
+    () =>
+      supabase.rpc('mes_save_work_order_snapshot', {
+        p_id: id,
+        p_mode: mode,
+        p_snapshot: keysToSnakeDeep(snapshot)
+      }),
+    { ...writeOptions, requireAffected: false, message: '工单生产资料已更新' }
+  )
+  return data ?? undefined
+}
+
+export async function recordWorkOrderProgress(
+  id: string,
+  action: 'report' | 'deliver',
+  quantity: number
+) {
+  const { data } = await responseHandle<MesWorkOrder>(
+    () =>
+      supabase.rpc('mes_record_work_order_progress', {
+        p_id: id,
+        p_action: action,
+        p_quantity: quantity
+      }),
+    {
+      ...writeOptions,
+      requireAffected: false,
+      message: action === 'report' ? '报工成功' : '交货成功'
+    }
+  )
+  return data ?? undefined
+}
+
+export async function markWorkOrderAbnormal(id: string, reason: string) {
+  const { data } = await responseHandle<{ status: string; message: string }>(
+    () => supabase.rpc('mes_mark_work_order_abnormal', { p_id: id, p_reason: reason }),
+    { ...writeOptions, requireAffected: false, message: '工单已标记异常' }
+  )
+  return data
+}
+
+export async function fetchWorkOrderSnapshotReferences(
+  tenantId: string
+): Promise<MesWorkOrderSnapshotReferences> {
+  const [materials, units, warehouses, departments, workCenters] = await Promise.all([
+    fetchAllRangePages<{ id: string; materialCode: string; materialName: string }>(({ from, to }) =>
+      responseHandle(
+        () =>
+          supabase
+            .from('mdm_material')
+            .select('id,material_code,material_name')
+            .eq('tenant_id', tenantId)
+            .order('material_code')
+            .range(from, to),
+        readOptions
+      )
+    ),
+    fetchAllRangePages<{ id: string; unitCode: string; unitName: string }>(({ from, to }) =>
+      responseHandle(
+        () =>
+          supabase
+            .from('mdm_unit_of_measure')
+            .select('id,unit_code,unit_name')
+            .eq('tenant_id', tenantId)
+            .order('unit_code')
+            .range(from, to),
+        readOptions
+      )
+    ),
+    fetchAllRangePages<{ id: string; warehouseCode: string; warehouseName: string }>(
+      ({ from, to }) =>
+        responseHandle(
+          () =>
+            supabase
+              .from('mdm_warehouse')
+              .select('id,warehouse_code,warehouse_name')
+              .eq('tenant_id', tenantId)
+              .order('warehouse_code')
+              .range(from, to),
+          readOptions
+        )
+    ),
+    fetchAllRangePages<{ id: string; code: string; name: string }>(({ from, to }) =>
+      responseHandle(
+        () =>
+          supabase
+            .from('mdm_production_department')
+            .select('id,code,name')
+            .eq('tenant_id', tenantId)
+            .order('code')
+            .range(from, to),
+        readOptions
+      )
+    ),
+    fetchAllRangePages<{ id: string; code: string; name: string }>(({ from, to }) =>
+      responseHandle(
+        () =>
+          supabase
+            .from('mdm_work_center')
+            .select('id,code,name')
+            .eq('tenant_id', tenantId)
+            .order('code')
+            .range(from, to),
+        readOptions
+      )
+    )
+  ])
+  return {
+    materials: (materials.data ?? []).map((item) => ({
+      id: item.id,
+      code: item.materialCode,
+      name: item.materialName
+    })),
+    units: (units.data ?? []).map((item) => ({
+      id: item.id,
+      code: item.unitCode,
+      name: item.unitName
+    })),
+    warehouses: (warehouses.data ?? []).map((item) => ({
+      id: item.id,
+      code: item.warehouseCode,
+      name: item.warehouseName
+    })),
+    departments: departments.data ?? [],
+    workCenters: workCenters.data ?? []
+  }
 }
 
 export async function batchTransitionWorkOrders(ids: string[], action: string) {
@@ -203,7 +349,7 @@ export async function fetchOperationTasks(
   let query = supabase
     .from('mes_operation_task')
     .select(
-      '*,workOrder:mes_work_order!mes_operation_task_order_fk!inner(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code,route_snapshot),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name),allocations:mes_operation_task_allocation(id,task_id,work_center_id,shift_schedule_id,shift_index,shift_name_snapshot,quantity,planned_start_date,planned_end_date,status)',
+      '*,workOrder:mes_work_order!mes_operation_task_order_fk!inner(work_order_no,work_order_type_name_snapshot,project_name_snapshot,construction_no,planner_name_snapshot,dispatcher_name_snapshot,material_code_snapshot,material_name_snapshot,specification_snapshot,unit_snapshot,planned_start_date,planned_end_date,urgency,source,remark,special_requirement,tracking_no,follow_no,sales_order_no,customer_code,route_snapshot),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name),allocations:mes_operation_task_allocation(id,task_id,work_center_id,shift_schedule_id,shift_index,shift_name_snapshot,quantity,planned_start_date,planned_end_date,status)',
       { count: 'exact' }
     )
     .range((params.current - 1) * params.size, params.current * params.size - 1)

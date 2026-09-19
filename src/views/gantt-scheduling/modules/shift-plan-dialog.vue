@@ -24,9 +24,11 @@
       />
 
       <div class="shift-plan-dialog__balance" aria-live="polite">
-        <span>分配数量</span>
+        <span>本次排产</span>
         <strong>{{ previewQuantity }}</strong>
-        <span>/ 可排 {{ availableQuantity }} {{ task?.operationUnit || '' }}</span>
+        <span
+          >/ 可排上限 {{ openData?.assignedQuantity || 0 }} {{ task?.operationUnit || '' }}</span
+        >
       </div>
     </div>
   </ArtDialog>

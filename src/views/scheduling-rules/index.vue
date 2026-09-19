@@ -77,12 +77,12 @@
 
 <script setup lang="ts">
   import { storeToRefs } from 'pinia'
-  import { ElMessageBox } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import ArtPermissionGuard from '@/components/core/feedback/art-permission-guard/index.vue'
   import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
   import ArtTable from '@/components/core/tables/art-table/index.vue'
+  import { useArtFeedback } from '@/hooks/core/useArtFeedback'
   import BusinessWorkspaceHeader, {
     type BusinessWorkspaceMetric,
     type BusinessWorkspaceTag
@@ -101,6 +101,7 @@
   ] as const
   void declaredPermissions
   const tenantScopeStore = useTenantScopeStore()
+  const { confirmDelete } = useArtFeedback()
   const { effectiveTenantId } = storeToRefs(tenantScopeStore)
   const dialogRef = ref<{ handleOpen: (data: RuleDialogOpenData) => Promise<void> }>()
   const loading = ref(false)
@@ -177,9 +178,7 @@
     void dialogRef.value?.handleOpen({ tenantId, row })
   }
   async function removeRule(row: MesSchedulingRule): Promise<void> {
-    await ElMessageBox.confirm(`确认删除排产规则“${row.name}”？`, '删除排产规则', {
-      type: 'warning'
-    })
+    await confirmDelete(`确认删除排产规则“${row.name}”？`, { title: '删除排产规则' })
     await deleteSchedulingRule(row.id)
     await loadRules()
   }

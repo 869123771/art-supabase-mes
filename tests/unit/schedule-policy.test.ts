@@ -83,6 +83,8 @@ test('uses work-order dates as a fallback for an operation task', () => {
       workOrderTypeNameSnapshot: '标准工单',
       projectNameSnapshot: null,
       constructionNo: null,
+      plannerNameSnapshot: '',
+      dispatcherNameSnapshot: '',
       materialCodeSnapshot: 'MAT-001',
       materialNameSnapshot: '组件',
       specificationSnapshot: '',

@@ -7,7 +7,11 @@
         eyebrow="MANUFACTURING EXECUTION"
         :title="heading"
         description="确认前维护计划信息；保存后即集成物料、BOM 与工艺路线，形成可追溯的执行基线。"
-      />
+      >
+        <template #aside>
+          <WorkOrderStatusTag v-if="detailRecord" :status="detailRecord.orderStatus" />
+        </template>
+      </ArtEntitySummary>
       <WorkOrderDetail
         v-if="readonly && detailRecord"
         :record="detailRecord"
@@ -81,6 +85,7 @@
   import { useUserStore } from '@/store/modules/user'
   import WorkOrderDetail from './work-order-detail.vue'
   import WorkOrderUrgencySegmented from './work-order-urgency-segmented.vue'
+  import WorkOrderStatusTag from './work-order-status-tag.vue'
   import {
     calculatePlanFromEnd,
     calculatePlanFromStart,
@@ -478,7 +483,8 @@
     tenantOptions.value = data.tenantOptions
     detailRecord.value = data.row
     readonly.value =
-      !!data.readonly || !!(data.row && !['pending', 'abnormal'].includes(data.row.status))
+      !!data.readonly ||
+      !!(data.row && (data.row.confirmedAt || !['pending', 'abnormal'].includes(data.row.status)))
     currentId.value = data.row?.id || ''
     selectedMaterial.value = data.row
       ? {

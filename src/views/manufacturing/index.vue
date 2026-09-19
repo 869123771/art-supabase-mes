@@ -78,15 +78,60 @@
         </ArtWorkspaceSplitter>
       </div>
 
-      <WorkOrderDialog ref="workOrderDialogRef" @success="refreshAfterSave" />
-      <WorkOrderAnnotationDialog ref="annotationDialogRef" @success="refreshAfterSave" />
-      <WorkOrderSnapshotDialog ref="snapshotDialogRef" />
-      <WorkOrderPrintSheet ref="printSheetRef" />
-      <WorkOrderDueDateDialog ref="dueDateDialogRef" @success="handleDueDateSuccess" />
-      <ScheduleDialog ref="scheduleDialogRef" @success="refreshAfterSave" />
-      <TaskDetailDialog ref="taskDetailDialogRef" />
-      <TaskAnnotationDialog ref="taskAnnotationDialogRef" @success="refreshAfterSave" />
-      <TaskDueDateDialog ref="taskDueDateDialogRef" @success="handleTaskDueDateSuccess" />
+      <component
+        :is="workOrderDialogComponent"
+        v-if="workOrderDialogComponent"
+        ref="workOrderDialogRef"
+        @success="refreshAfterSave"
+      />
+      <component
+        :is="annotationDialogComponent"
+        v-if="annotationDialogComponent"
+        ref="annotationDialogRef"
+        @success="refreshAfterSave"
+      />
+      <component
+        :is="snapshotDialogComponent"
+        v-if="snapshotDialogComponent"
+        ref="snapshotDialogRef"
+        @success="handleSnapshotSaved"
+      />
+      <component :is="printSheetComponent" v-if="printSheetComponent" ref="printSheetRef" />
+      <component
+        :is="dueDateDialogComponent"
+        v-if="dueDateDialogComponent"
+        ref="dueDateDialogRef"
+        @success="handleDueDateSuccess"
+      />
+      <component
+        :is="progressDialogComponent"
+        v-if="progressDialogComponent"
+        ref="progressDialogRef"
+        @success="refreshAfterSave"
+      />
+      <component
+        :is="scheduleDialogComponent"
+        v-if="scheduleDialogComponent"
+        ref="scheduleDialogRef"
+        @success="refreshAfterSave"
+      />
+      <component
+        :is="taskDetailDialogComponent"
+        v-if="taskDetailDialogComponent"
+        ref="taskDetailDialogRef"
+      />
+      <component
+        :is="taskAnnotationDialogComponent"
+        v-if="taskAnnotationDialogComponent"
+        ref="taskAnnotationDialogRef"
+        @success="refreshAfterSave"
+      />
+      <component
+        :is="taskDueDateDialogComponent"
+        v-if="taskDueDateDialogComponent"
+        ref="taskDueDateDialogRef"
+        @success="handleTaskDueDateSuccess"
+      />
     </div>
   </ArtPermissionGuard>
 </template>
@@ -95,6 +140,7 @@
   import dayjs from 'dayjs'
   import { ElMessage, ElTag } from 'element-plus'
   import { useArtFeedback } from '@/hooks/core/useArtFeedback'
+  import { useLazyComponent } from '@/hooks/core/useLazyComponent'
   import { useTenantScopeAccessPolicy } from '@/hooks/core/useTenantScopeAccessPolicy'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
   import { useUserStore } from '@/store/modules/user'
@@ -128,6 +174,7 @@
     fetchOperationTasks,
     fetchWorkOrders,
     importWorkOrders,
+    markWorkOrderAbnormal,
     reloadWorkOrderSnapshot,
     transitionOperationTask,
     transitionWorkOrder,
@@ -139,27 +186,25 @@
     type MesWorkOrder,
     type MesWorkOrderInput
   } from '@mes/api'
-  import ScheduleDialog, { type ScheduleDialogOpenData } from './modules/schedule-dialog.vue'
-  import WorkOrderAnnotationDialog, {
-    type WorkOrderAnnotationDialogOpenData
-  } from './modules/work-order-annotation-dialog.vue'
-  import WorkOrderDialog, { type WorkOrderDialogOpenData } from './modules/work-order-dialog.vue'
-  import WorkOrderDueDateDialog, {
-    type WorkOrderDueDateDialogOpenData
-  } from './modules/work-order-due-date-dialog.vue'
-  import WorkOrderSnapshotDialog, {
-    type WorkOrderSnapshotDialogOpenData,
-    type WorkOrderSnapshotMode
+  import type { ScheduleDialogOpenData } from './modules/schedule-dialog.vue'
+  import type { WorkOrderAnnotationDialogOpenData } from './modules/work-order-annotation-dialog.vue'
+  import type { WorkOrderDialogOpenData } from './modules/work-order-dialog.vue'
+  import type { WorkOrderDueDateDialogOpenData } from './modules/work-order-due-date-dialog.vue'
+  import type { WorkOrderProgressDialogOpenData } from './modules/work-order-progress-dialog.vue'
+  import type {
+    WorkOrderSnapshotDialogOpenData,
+    WorkOrderSnapshotMode
   } from './modules/work-order-snapshot-dialog.vue'
-  import WorkOrderPrintSheet from './modules/work-order-print-sheet.vue'
   import WorkOrderUrgencyLabel from './modules/work-order-urgency-label.vue'
-  import TaskDetailDialog, { type TaskDetailDialogOpenData } from './modules/task-detail-dialog.vue'
-  import TaskAnnotationDialog, {
-    type TaskAnnotationDialogOpenData
-  } from './modules/task-annotation-dialog.vue'
-  import TaskDueDateDialog, {
-    type TaskDueDateDialogOpenData
-  } from './modules/task-due-date-dialog.vue'
+  import WorkOrderStatusTag from './modules/work-order-status-tag.vue'
+  import {
+    isWorkOrderDisplayStatus,
+    workOrderStatusCodes,
+    workOrderStatusMeta
+  } from './modules/work-order-status'
+  import type { TaskDetailDialogOpenData } from './modules/task-detail-dialog.vue'
+  import type { TaskAnnotationDialogOpenData } from './modules/task-annotation-dialog.vue'
+  import type { TaskDueDateDialogOpenData } from './modules/task-due-date-dialog.vue'
 
   defineOptions({ name: 'MesManufacturing' })
   const declaredPermissions = [
@@ -172,7 +217,11 @@
     'MesWorkOrder:Print',
     'MesWorkOrder:Annotate',
     'MesWorkOrder:Confirm',
+    'MesWorkOrder:MarkAbnormal',
+    'MesWorkOrder:Report',
+    'MesWorkOrder:Deliver',
     'MesWorkOrder:Close',
+    'MesWorkOrder:FinancialClose',
     'MesWorkOrder:Reopen',
     'MesWorkOrder:Restore',
     'MesWorkOrder:Copy',
@@ -208,6 +257,35 @@
   const tableRef = ref<ArtTableQueryExpose>()
   const userStore = useUserStore()
   const { getDictMap } = storeToRefs(userStore)
+  const { component: workOrderDialogComponent, load: loadWorkOrderDialog } = useLazyComponent(
+    () => import('./modules/work-order-dialog.vue')
+  )
+  const { component: annotationDialogComponent, load: loadAnnotationDialog } = useLazyComponent(
+    () => import('./modules/work-order-annotation-dialog.vue')
+  )
+  const { component: snapshotDialogComponent, load: loadSnapshotDialog } = useLazyComponent(
+    () => import('./modules/work-order-snapshot-dialog.vue')
+  )
+  const { component: printSheetComponent, load: loadPrintSheet } = useLazyComponent(
+    () => import('./modules/work-order-print-sheet.vue')
+  )
+  const { component: dueDateDialogComponent, load: loadDueDateDialog } = useLazyComponent(
+    () => import('./modules/work-order-due-date-dialog.vue')
+  )
+  const { component: progressDialogComponent, load: loadProgressDialog } = useLazyComponent(
+    () => import('./modules/work-order-progress-dialog.vue')
+  )
+  const { component: scheduleDialogComponent, load: loadScheduleDialog } = useLazyComponent(
+    () => import('./modules/schedule-dialog.vue')
+  )
+  const { component: taskDetailDialogComponent, load: loadTaskDetailDialog } = useLazyComponent(
+    () => import('./modules/task-detail-dialog.vue')
+  )
+  const { component: taskAnnotationDialogComponent, load: loadTaskAnnotationDialog } =
+    useLazyComponent(() => import('./modules/task-annotation-dialog.vue'))
+  const { component: taskDueDateDialogComponent, load: loadTaskDueDateDialog } = useLazyComponent(
+    () => import('./modules/task-due-date-dialog.vue')
+  )
   const workOrderDialogRef = ref<{ handleOpen: (data: WorkOrderDialogOpenData) => Promise<void> }>()
   const annotationDialogRef = ref<{
     handleOpen: (data: WorkOrderAnnotationDialogOpenData) => Promise<void>
@@ -218,6 +296,9 @@
   const printSheetRef = ref<{ print: (rows: MesWorkOrder[]) => Promise<void> }>()
   const dueDateDialogRef = ref<{
     handleOpen: (data: WorkOrderDueDateDialogOpenData) => Promise<void>
+  }>()
+  const progressDialogRef = ref<{
+    handleOpen: (data: WorkOrderProgressDialogOpenData) => Promise<void>
   }>()
   const scheduleDialogRef = ref<{ handleOpen: (data: ScheduleDialogOpenData) => Promise<void> }>()
   const taskDetailDialogRef = ref<{
@@ -232,7 +313,7 @@
   const tenantScopeStore = useTenantScopeStore()
   const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
   const { isCrossTenantReadOnly } = useTenantScopeAccessPolicy()
-  const { confirmAction, confirmDelete } = useArtFeedback()
+  const { confirmAction, confirmDelete, promptReason } = useArtFeedback()
   const batchBusy = ref(false)
   const referenceState = reactive({
     employees: [] as MesReferenceOption[],
@@ -287,7 +368,10 @@
   const statusOptions = computed(() =>
     isWorkOrder.value
       ? [
-          ...(getDictMap.value.mesWorkOrderStatus ?? []),
+          ...workOrderStatusCodes.map((value) => ({
+            value,
+            label: workOrderStatusMeta[value].label
+          })),
           { label: '回收站（30 天内）', value: '__deleted' }
         ]
       : (getDictMap.value.mesOperationTaskScheduleStatus ?? [])
@@ -390,7 +474,7 @@
     if (isWorkOrder.value) {
       items.push({
         key: 'status',
-        label: '业务状态',
+        label: '工单状态',
         type: 'select',
         props: {
           clearable: true,
@@ -419,7 +503,11 @@
         span: 12,
         props: {
           optionType: 'button',
-          options: statusOptions.value
+          options: statusOptions.value,
+          onChange: () => {
+            tableRef.value?.clearSelection()
+            void tableRef.value?.getData()
+          }
         }
       })
       items.push({
@@ -735,6 +823,9 @@
     ]
   })
   const statusTag = (status: string, explicitDictCode?: string) => {
+    if (isWorkOrder.value && isWorkOrderDisplayStatus(status)) {
+      return <WorkOrderStatusTag status={status} />
+    }
     const meta = statusMeta[status] || { label: status, type: 'info' as const }
     const dictCode =
       explicitDictCode || (isWorkOrder.value ? 'mesWorkOrderStatus' : 'mesOperationTaskStatus')
@@ -761,8 +852,8 @@
       label: '工单类型',
       minWidth: 138,
       formatter: (row) => (
-        <span class="manufacturing-page__order-type">
-          <span>{row.workOrderTypeNameSnapshot || '未分类'}</span>
+        <span class="inline-flex max-w-full min-w-0 items-center gap-1.5">
+          <span class="min-w-0 truncate">{row.workOrderTypeNameSnapshot || '未分类'}</span>
           <WorkOrderUrgencyLabel urgency={row.urgency} showText={false} />
         </span>
       )
@@ -770,6 +861,42 @@
     { prop: 'materialCodeSnapshot', label: '物料编码', minWidth: 140, showOverflowTooltip: true },
     { prop: 'materialNameSnapshot', label: '物料描述', minWidth: 180, showOverflowTooltip: true },
     { prop: 'specificationSnapshot', label: '规格型号', minWidth: 140, showOverflowTooltip: true },
+    { prop: 'drawingNoSnapshot', label: '图号', minWidth: 130, showOverflowTooltip: true },
+    {
+      prop: 'projectNameSnapshot',
+      label: '项目名称',
+      minWidth: 150,
+      showOverflowTooltip: true,
+      formatter: (row) => row.projectNameSnapshot || '—'
+    },
+    {
+      prop: 'constructionNo',
+      label: '施工号',
+      minWidth: 120,
+      showOverflowTooltip: true,
+      formatter: (row) => row.constructionNo || '—'
+    },
+    {
+      prop: 'plannerNameSnapshot',
+      label: '计划员',
+      minWidth: 120,
+      showOverflowTooltip: true,
+      formatter: (row) => row.plannerNameSnapshot || '—'
+    },
+    {
+      prop: 'dispatcherNameSnapshot',
+      label: '调度员',
+      minWidth: 120,
+      showOverflowTooltip: true,
+      formatter: (row) => row.dispatcherNameSnapshot || '—'
+    },
+    {
+      prop: 'inboundWarehouseNameSnapshot',
+      label: '入库仓库',
+      minWidth: 150,
+      showOverflowTooltip: true,
+      formatter: (row) => row.inboundWarehouseNameSnapshot || '—'
+    },
     {
       prop: 'orderQuantity',
       label: '工单数量',
@@ -807,24 +934,26 @@
             showLabel
             onClick={() => openSnapshot(row, 'route')}
           />
-          {!isCrossTenantReadOnly.value && ['pending', 'abnormal'].includes(row.status) && (
-            <ArtButtonTable
-              permission="MesWorkOrder:ReloadSnapshot"
-              icon="ri:refresh-line"
-              label="重读 BOM/工艺"
-              showLabel
-              onClick={() => void handleReloadSnapshot(row)}
-            />
-          )}
+          {!isCrossTenantReadOnly.value &&
+            !row.confirmedAt &&
+            ['pending', 'abnormal'].includes(row.status) && (
+              <ArtButtonTable
+                permission="MesWorkOrder:ReloadSnapshot"
+                icon="ri:refresh-line"
+                label="重读 BOM/工艺"
+                showLabel
+                onClick={() => void handleReloadSnapshot(row)}
+              />
+            )}
         </BusinessTableRowActions>
       )
     },
     {
       prop: 'status',
-      label: '状态',
+      label: '工单状态',
       width: 100,
       align: 'center',
-      formatter: (row) => statusTag(row.status)
+      formatter: (row) => statusTag(row.orderStatus)
     },
     {
       prop: 'statusReason',
@@ -851,7 +980,7 @@
             permission="MesWorkOrder:View"
             onClick={() => openWorkOrder(row, true)}
           />
-          {!row.deletedAt && ['pending', 'abnormal'].includes(row.status) && (
+          {!row.deletedAt && !row.confirmedAt && ['pending', 'abnormal'].includes(row.status) && (
             <ArtButtonTable
               type="edit"
               permission="MesWorkOrder:Edit"
@@ -900,8 +1029,8 @@
       minWidth: 132,
       showOverflowTooltip: true,
       formatter: (row) => (
-        <span class="manufacturing-page__order-type">
-          <span>{row.workOrder?.workOrderTypeNameSnapshot || '—'}</span>
+        <span class="inline-flex max-w-full min-w-0 items-center gap-1.5">
+          <span class="min-w-0 truncate">{row.workOrder?.workOrderTypeNameSnapshot || '—'}</span>
           <WorkOrderUrgencyLabel urgency={row.workOrder?.urgency || row.urgency} showText={false} />
         </span>
       )
@@ -1167,32 +1296,79 @@
         ? [
             {
               key: 'confirm',
-              label: '确认工单',
+              label: row.confirmedAt ? '恢复下达' : '确认工单',
               icon: 'ri:checkbox-circle-line',
               auth: 'MesWorkOrder:Confirm'
             }
           ]
         : []),
       ...(row.status === 'confirmed'
-        ? [{ key: 'close', label: '结案', icon: 'ri:archive-line', auth: 'MesWorkOrder:Close' }]
+        ? [
+            {
+              key: 'abnormal',
+              label: '标记异常',
+              icon: 'ri:error-warning-line',
+              auth: 'MesWorkOrder:MarkAbnormal'
+            },
+            ...(Number(row.completedQuantity) < Number(row.orderQuantity)
+              ? [
+                  {
+                    key: 'report',
+                    label: '报工',
+                    icon: 'ri:checkbox-multiple-line',
+                    auth: 'MesWorkOrder:Report'
+                  }
+                ]
+              : []),
+            ...(Number(row.warehousedQuantity) < Number(row.completedQuantity)
+              ? [
+                  {
+                    key: 'deliver',
+                    label: '交货',
+                    icon: 'ri:inbox-archive-line',
+                    auth: 'MesWorkOrder:Deliver'
+                  }
+                ]
+              : []),
+            ...(row.orderStatus === 'DLV'
+              ? [
+                  {
+                    key: 'close',
+                    label: '结案',
+                    icon: 'ri:archive-line',
+                    auth: 'MesWorkOrder:Close'
+                  }
+                ]
+              : [])
+          ]
         : []),
-      ...(row.status === 'closed'
+      ...(row.status === 'closed' && row.orderStatus !== 'CLSD'
         ? [
             {
               key: 'reopen',
               label: '撤销结案',
               icon: 'ri:arrow-go-back-line',
               auth: 'MesWorkOrder:Reopen'
+            },
+            {
+              key: 'financial_close',
+              label: '财务关闭',
+              icon: 'ri:lock-line',
+              auth: 'MesWorkOrder:FinancialClose'
             }
           ]
         : []),
-      {
-        key: 'delete',
-        label: '删除',
-        icon: 'ri:delete-bin-6-line',
-        color: 'var(--el-color-danger)',
-        auth: 'MesWorkOrder:Delete'
-      }
+      ...(row.orderStatus === 'CLSD'
+        ? []
+        : [
+            {
+              key: 'delete',
+              label: '删除',
+              icon: 'ri:delete-bin-6-line',
+              color: 'var(--el-color-danger)',
+              auth: 'MesWorkOrder:Delete'
+            }
+          ])
     ]
   }
   function taskMore(row: MesOperationTask) {
@@ -1294,42 +1470,60 @@
       value: tenant.id
     }))
   }
-  function openWorkOrder(row?: MesWorkOrder, readonly = false) {
-    void workOrderDialogRef.value?.handleOpen({
+  async function openWorkOrder(row?: MesWorkOrder, readonly = false): Promise<void> {
+    await loadWorkOrderDialog()
+    await workOrderDialogRef.value?.handleOpen({
       tenantId: row?.tenantId || effectiveTenantId.value || '',
       tenantOptions: tenantChoices(),
       row,
       readonly
     })
   }
-  function openSchedule(row: MesOperationTask) {
-    void scheduleDialogRef.value?.handleOpen({ row, workCenters: referenceState.workCenters })
+  async function openSchedule(row: MesOperationTask): Promise<void> {
+    await loadScheduleDialog()
+    await scheduleDialogRef.value?.handleOpen({ row, workCenters: referenceState.workCenters })
   }
-  function openTaskDetail(row: MesOperationTask) {
-    void taskDetailDialogRef.value?.handleOpen({
+  async function openTaskDetail(row: MesOperationTask): Promise<void> {
+    await loadTaskDetailDialog()
+    await taskDetailDialogRef.value?.handleOpen({
       row,
       workCenters: referenceState.workCenters
     })
   }
-  function openTaskAnnotation(row: MesOperationTask) {
-    void taskAnnotationDialogRef.value?.handleOpen({ row })
+  async function openTaskAnnotation(row: MesOperationTask): Promise<void> {
+    await loadTaskAnnotationDialog()
+    await taskAnnotationDialogRef.value?.handleOpen({ row })
   }
   let taskDueDateFromSelection = false
-  function openTaskDueDate(rows: MesOperationTask[], fromSelection = false) {
+  async function openTaskDueDate(rows: MesOperationTask[], fromSelection = false): Promise<void> {
     taskDueDateFromSelection = fromSelection
-    void taskDueDateDialogRef.value?.handleOpen({ rows })
+    await loadTaskDueDateDialog()
+    await taskDueDateDialogRef.value?.handleOpen({ rows })
   }
-  function openWorkOrderDueDate(rows: MesWorkOrder[]): void {
+  async function openWorkOrderDueDate(rows: MesWorkOrder[]): Promise<void> {
     dueDateClearSelection = () => tableRef.value?.clearSelection()
     const firstDate = rows[0]?.plannedEndDate
     const sharedDate = rows.every((row) => row.plannedEndDate === firstDate) ? firstDate : undefined
-    void dueDateDialogRef.value?.handleOpen({
+    await loadDueDateDialog()
+    await dueDateDialogRef.value?.handleOpen({
       ids: rows.map((row) => row.id),
       initialDate: sharedDate
     })
   }
-  function openSnapshot(row: MesWorkOrder, mode: WorkOrderSnapshotMode): void {
-    void snapshotDialogRef.value?.handleOpen({ row, mode })
+  async function openSnapshot(row: MesWorkOrder, mode: WorkOrderSnapshotMode): Promise<void> {
+    await loadSnapshotDialog()
+    await snapshotDialogRef.value?.handleOpen({
+      row,
+      mode,
+      canEdit:
+        !isCrossTenantReadOnly.value &&
+        !row.confirmedAt &&
+        ['pending', 'abnormal'].includes(row.status)
+    })
+  }
+
+  function handleSnapshotSaved(): void {
+    void tableRef.value?.getData()
   }
   async function handleGetWorkOrders(): Promise<void> {
     await tableRef.value?.getData()
@@ -1355,6 +1549,7 @@
     notifyBatchResult(result, '批量打印')
     if (!result.successIds.length) return
     const printableRows = rows.filter((row) => result.successIds.includes(row.id))
+    await loadPrintSheet()
     await printSheetRef.value?.print(printableRows)
   }
   async function handleReloadSnapshot(row: MesWorkOrder): Promise<void> {
@@ -1449,7 +1644,27 @@
     }
   }
   async function handleWorkOrderAction(row: MesWorkOrder, action: string) {
+    if (action === 'financial_close') {
+      await confirmAction(`确认工单“${row.workOrderNo}”已完成财务结算并永久关闭吗？`, '财务关闭', {
+        confirmButtonText: '确认财务关闭'
+      })
+    }
+    if (action === 'abnormal') {
+      const reason = await promptReason(
+        `将工单“${row.workOrderNo}”标记为异常，请填写原因。`,
+        '工单异常'
+      )
+      await markWorkOrderAbnormal(row.id, reason)
+      await tableRef.value?.refreshData()
+      return
+    }
+    if (action === 'report' || action === 'deliver') {
+      await loadProgressDialog()
+      await progressDialogRef.value?.handleOpen({ row, action })
+      return
+    }
     if (action === 'annotate') {
+      await loadAnnotationDialog()
       await annotationDialogRef.value?.handleOpen({ row })
       return
     }
@@ -1471,11 +1686,11 @@
   }
   async function handleTaskAction(row: MesOperationTask, action: string) {
     if (action === 'annotate') {
-      openTaskAnnotation(row)
+      await openTaskAnnotation(row)
       return
     }
     if (action === 'due-date') {
-      openTaskDueDate([row])
+      await openTaskDueDate([row])
       return
     }
     if (action === 'delete') await confirmDelete(`确定删除工序任务“${row.operationName}”吗？`)
@@ -1602,20 +1817,6 @@
       > .art-table-query {
         flex: 1;
         min-height: 0;
-      }
-    }
-
-    &__order-type {
-      display: inline-flex;
-      gap: 6px;
-      align-items: center;
-      min-width: 0;
-      max-width: 100%;
-
-      > span:first-child {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
     }
 

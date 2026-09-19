@@ -36,6 +36,11 @@
         empty-title="当前工单没有 BOM 组件"
         empty-description="请先维护该物料 BOM，再点击“重读 BOM/工艺”更新工单快照。"
       >
+        <template v-if="canEdit" #actions>
+          <ElButton v-auth="'MesWorkOrder:Edit'" type="primary" plain @click="openEditor('item')">
+            新增组件
+          </ElButton>
+        </template>
         <ArtTable
           v-if="bomItems.length"
           :data="bomItems"
@@ -55,6 +60,14 @@
         empty-title="当前工单没有工艺路线"
         empty-description="请先维护该物料工艺路线，再点击“重读 BOM/工艺”更新工单快照。"
       >
+        <template v-if="canEdit" #actions>
+          <ElButton v-auth="'MesWorkOrder:Edit'" @click="openEditor('header')">
+            编辑路线信息
+          </ElButton>
+          <ElButton v-auth="'MesWorkOrder:Edit'" type="primary" plain @click="openEditor('item')">
+            新增工序
+          </ElButton>
+        </template>
         <ArtTable
           v-if="routeSteps.length"
           :data="routeSteps"
@@ -67,30 +80,39 @@
       </ArtSectionCard>
     </div>
   </ArtDialog>
+  <WorkOrderSnapshotEditor ref="editorRef" @success="handleEditorSuccess" />
 </template>
 
 <script setup lang="tsx">
-  import { ElTag } from 'element-plus'
+  import { ElButton, ElTag } from 'element-plus'
+  import { useArtFeedback } from '@/hooks/core/useArtFeedback'
   import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
   import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
   import ArtTable from '@/components/core/tables/art-table/index.vue'
   import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
   import ArtDictDisplay from '@/components/core/base/art-dict-display/index.vue'
+  import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useUserStore } from '@/store/modules/user'
   import { formatNumberValue } from '@/utils/ui'
   import type { ColumnOption } from '@/types'
   import type {
     MesWorkOrder,
     MesWorkOrderBomItemSnapshot,
-    MesWorkOrderRouteStepSnapshot
+    MesWorkOrderRouteStepSnapshot,
+    MesWorkOrderSnapshotReferences
   } from '@mes/api'
+  import { fetchWorkOrderSnapshotReferences, saveWorkOrderSnapshot } from '@mes/api'
   import { calculateOperationQuantity } from './work-order-plan'
+  import WorkOrderSnapshotEditor, {
+    type WorkOrderSnapshotEditorOpenData
+  } from './work-order-snapshot-editor.vue'
 
   export type WorkOrderSnapshotMode = 'bom' | 'route'
   export interface WorkOrderSnapshotDialogOpenData {
     row: MesWorkOrder
     mode: WorkOrderSnapshotMode
+    canEdit: boolean
   }
 
   interface WorkOrderBomDisplayItem extends MesWorkOrderBomItemSnapshot {
@@ -105,9 +127,20 @@
   }
 
   const dialogRef = ref<ArtDialogExpose<WorkOrderSnapshotDialogOpenData>>()
+  const emit = defineEmits<{ success: [row: MesWorkOrder] }>()
+  const editorRef = ref<{ handleOpen: (data: WorkOrderSnapshotEditorOpenData) => Promise<void> }>()
   const userStore = useUserStore()
+  const { confirmDelete } = useArtFeedback()
   const record = shallowRef<MesWorkOrder>()
   const mode = ref<WorkOrderSnapshotMode>('bom')
+  const canEdit = ref(false)
+  const references = shallowRef<MesWorkOrderSnapshotReferences>({
+    materials: [],
+    units: [],
+    warehouses: [],
+    departments: [],
+    workCenters: []
+  })
   const bom = computed(() => record.value?.bomSnapshot?.[0])
   const routeSteps = computed<WorkOrderRouteDisplayStep[]>(() =>
     (record.value?.routeSnapshot?.steps ?? []).map((step) => ({
@@ -183,6 +216,36 @@
       formatter: (row) => row.sourcePath?.join(' → ') || row.componentMaterialCode
     },
     { prop: 'positionNo', label: '位号', minWidth: 100 },
+    { prop: 'sequenceNo', label: '组件序号', width: 100, align: 'right' },
+    {
+      prop: 'scrapRate',
+      label: '损耗率 %',
+      width: 100,
+      align: 'right',
+      formatter: (row) => row.scrapRate ?? 0
+    },
+    {
+      prop: 'mrpEnabled',
+      label: 'MRP 运算',
+      width: 100,
+      formatter: (row) => (row.mrpEnabled === false ? '否' : '是')
+    },
+    {
+      prop: 'defaultIssueWarehouseId',
+      label: '默认发料仓库',
+      minWidth: 150,
+      formatter: (row) =>
+        references.value.warehouses.find((entry) => entry.id === row.defaultIssueWarehouseId)
+          ?.name || '—'
+    },
+    { prop: 'issueMethod', label: '领送料方式', width: 120 },
+    { prop: 'backflushMethod', label: '倒冲方式', width: 120 },
+    { prop: 'overIssueControlMethod', label: '超发控制方式', width: 140 },
+    { prop: 'projectText', label: '项目文本', minWidth: 140, showOverflowTooltip: true },
+    { prop: 'operationName', label: '工序名称', minWidth: 130 },
+    { prop: 'effectiveFrom', label: '生效日期', width: 120 },
+    { prop: 'effectiveTo', label: '失效日期', width: 120 },
+    { prop: 'remark', label: '备注', minWidth: 160, showOverflowTooltip: true },
     {
       prop: 'assignedOperationSequenceNo',
       label: '工序序列',
@@ -219,6 +282,31 @@
           )}
         </span>
       )
+    },
+    {
+      prop: 'actions',
+      label: '操作',
+      width: 112,
+      fixed: 'right',
+      formatter: (row) =>
+        canEdit.value ? (
+          <span class="inline-flex items-center gap-1">
+            <ArtButtonTable
+              permission="MesWorkOrder:Edit"
+              icon="ri:edit-line"
+              label="编辑组件"
+              onClick={() => openEditor('item', row)}
+            />
+            <ArtButtonTable
+              permission="MesWorkOrder:Edit"
+              icon="ri:delete-bin-line"
+              label="删除组件"
+              onClick={() => void deleteItem(row.id)}
+            />
+          </span>
+        ) : (
+          '—'
+        )
     }
   ]
   const routeColumns: ColumnOption<WorkOrderRouteDisplayStep>[] = [
@@ -268,7 +356,7 @@
       label: '单趟绿灯(分)',
       width: 126,
       align: 'right',
-      formatter: (row) => row.runGreenMinutes ?? row.runProcessingMinutes
+      formatter: (row) => row.runGreenMinutes ?? 0
     },
     { prop: 'setupMinutes', label: '调机时长(分)', width: 118, align: 'right' },
     { prop: 'queueMinutes', label: '排队时长(分)', width: 118, align: 'right' },
@@ -398,12 +486,86 @@
       align: 'center',
       formatter: (row) => (row.critical ? '是' : '否')
     },
-    { prop: 'description', label: '工序说明', minWidth: 220, showOverflowTooltip: true }
+    { prop: 'description', label: '工序说明', minWidth: 220, showOverflowTooltip: true },
+    {
+      prop: 'actions',
+      label: '操作',
+      width: 112,
+      fixed: 'right',
+      formatter: (row) =>
+        canEdit.value ? (
+          <span class="inline-flex items-center gap-1">
+            <ArtButtonTable
+              permission="MesWorkOrder:Edit"
+              icon="ri:edit-line"
+              label="编辑工序"
+              onClick={() => openEditor('item', row)}
+            />
+            <ArtButtonTable
+              permission="MesWorkOrder:Edit"
+              icon="ri:delete-bin-line"
+              label="删除工序"
+              onClick={() => void deleteItem(row.id)}
+            />
+          </span>
+        ) : (
+          '—'
+        )
+    }
   ]
+
+  async function openEditor(
+    target: 'item' | 'header',
+    item?: MesWorkOrderBomItemSnapshot | MesWorkOrderRouteStepSnapshot
+  ): Promise<void> {
+    if (!record.value || !canEdit.value) return
+    await editorRef.value?.handleOpen({
+      row: record.value,
+      mode: mode.value,
+      target,
+      item,
+      references: references.value
+    })
+  }
+
+  function handleEditorSuccess(updated: MesWorkOrder): void {
+    record.value = updated
+    emit('success', updated)
+  }
+
+  async function deleteItem(id: string): Promise<void> {
+    if (!record.value || !canEdit.value) return
+    try {
+      await confirmDelete(
+        mode.value === 'bom'
+          ? '确定删除当前工单的这条 BOM 组件吗？'
+          : '确定删除当前工单的这道工序吗？',
+        { title: '删除生产资料' }
+      )
+      let updated: MesWorkOrder | undefined
+      if (mode.value === 'bom') {
+        const snapshots = structuredClone(record.value.bomSnapshot ?? [])
+        if (!snapshots[0]) return
+        snapshots[0].items = snapshots[0].items.filter((item) => item.id !== id)
+        updated = await saveWorkOrderSnapshot(record.value.id, 'bom', snapshots)
+      } else {
+        const route = structuredClone(record.value.routeSnapshot ?? {})
+        route.steps = (route.steps ?? []).filter((step) => step.id !== id)
+        updated = await saveWorkOrderSnapshot(record.value.id, 'route', route)
+      }
+      if (updated) handleEditorSuccess(updated)
+    } catch {
+      // 取消删除或接口反馈已由组件处理。
+    }
+  }
 
   async function handleOpen(data: WorkOrderSnapshotDialogOpenData): Promise<void> {
     record.value = data.row
     mode.value = data.mode
+    canEdit.value = data.canEdit
+    references.value = data.canEdit
+      ? await fetchWorkOrderSnapshotReferences(data.row.tenantId)
+      : { materials: [], units: [], warehouses: [], departments: [], workCenters: [] }
     const dictionaryCodes =
       data.mode === 'route'
         ? [

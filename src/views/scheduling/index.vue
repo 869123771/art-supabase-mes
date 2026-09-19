@@ -97,12 +97,12 @@
         <ArtSectionCard
           class="scheduling-page__task-card"
           :title="`待排产任务（约 ${totalStandardHours.toFixed(1)} 标准工时 H）`"
-          :subtitle="`${filteredTasks.length} 条工序任务 · 与工序任务列表共用同一数据源`"
+          :subtitle="`${pendingTasks.length} 条待排工序任务 · 与工序任务列表共用同一数据源`"
           :loading="state.loading"
           :error="state.error"
-          :empty="!state.loading && !state.error && !filteredTasks.length"
+          :empty="!state.loading && !state.error && !pendingTasks.length"
           empty-title="当前条件下没有待排产任务"
-          empty-description="请调整车间、班次或组合查询条件；已结案和无需排产任务可通过状态条件查看。"
+          empty-description="请调整车间、班次或组合查询条件；已全部排产的任务可在右侧工作中心查看。"
           :min-height="0"
           body-class="scheduling-page__task-body"
           retryable
@@ -146,17 +146,18 @@
             </ArtTooltip>
           </template>
           <ArtTable
-            v-if="filteredTasks.length"
+            v-if="pendingTasks.length"
             ref="taskTableRef"
             class="scheduling-page__table"
             row-key="id"
-            :data="filteredTasks"
+            :data="pendingTasks"
             :columns="taskColumns"
             :pagination="false"
             :show-table-header="false"
             height="100%"
             empty-height="100%"
             @selection-change="handleSelectionChange"
+            @sort-change="handleSortChange"
           />
         </ArtSectionCard>
 
@@ -318,6 +319,10 @@
   })
   const drafts = reactive<Record<string, ScheduleDraft>>({})
   const selectedRows = ref<MesOperationTask[]>([])
+  const taskSort = reactive<{
+    prop: 'plannerNameSnapshot' | 'dispatcherNameSnapshot' | ''
+    order: 'ascending' | 'descending' | null
+  }>({ prop: '', order: null })
   const overviewCollapsed = ref(false)
   const productionTree = new TreeUtils({ deepClone: false })
   const workspaceTags: BusinessWorkspaceTag[] = [
@@ -435,15 +440,37 @@
       )
     })
   )
+  const pendingTasks = computed(() => {
+    const tasks = filteredTasks.value.filter(
+      (task) =>
+        ['pending', 'scheduled'].includes(task.schedulingStatus) &&
+        !['completed', 'closed'].includes(task.operationStatus) &&
+        availableQuantity(task) > 0
+    )
+    if (!taskSort.prop || !taskSort.order) return tasks
+    const direction = taskSort.order === 'ascending' ? 1 : -1
+    const sortKey = taskSort.prop
+    return [...tasks].sort(
+      (left, right) =>
+        direction *
+        (left.workOrder?.[sortKey]?.localeCompare(right.workOrder?.[sortKey] || '', 'zh-CN', {
+          numeric: true
+        }) || 0)
+    )
+  })
   const totalStandardHours = computed(() =>
-    filteredTasks.value.reduce(
-      (total, task) => total + Number(task.estimatedWorkMinutes || 0) / 60,
+    pendingTasks.value.reduce(
+      (total, task) =>
+        total +
+        (Number(task.estimatedWorkMinutes || 0) * availableQuantity(task)) /
+          Number(task.plannedQuantity || 1) /
+          60,
       0
     )
   )
   const metrics = computed<BusinessWorkspaceMetric[]>(() => {
     const tasks = filteredTasks.value
-    const pending = tasks.filter((task) => task.schedulingStatus === 'pending').length
+    const pending = pendingTasks.value.length
     const scheduledQuantity = tasks.reduce(
       (total, task) => total + Number(task.scheduledQuantity || 0),
       0
@@ -494,7 +521,7 @@
       label: '工单类型',
       minWidth: 130,
       formatter: (row) => (
-        <span class="scheduling-page__order-type">
+        <span class="inline-flex min-w-0 items-center gap-1">
           <span>{row.workOrder?.workOrderTypeNameSnapshot || '—'}</span>
           <WorkOrderUrgencyLabel urgency={row.workOrder?.urgency || row.urgency} showText={false} />
         </span>
@@ -506,6 +533,22 @@
       minWidth: 150,
       showOverflowTooltip: true,
       formatter: (row) => row.workOrder?.projectNameSnapshot || '—'
+    },
+    {
+      prop: 'plannerNameSnapshot',
+      label: '计划员',
+      minWidth: 112,
+      sortable: 'custom',
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.plannerNameSnapshot || '—'
+    },
+    {
+      prop: 'dispatcherNameSnapshot',
+      label: '调度员',
+      minWidth: 112,
+      sortable: 'custom',
+      showOverflowTooltip: true,
+      formatter: (row) => row.workOrder?.dispatcherNameSnapshot || '—'
     },
     {
       prop: 'materialCode',
@@ -613,7 +656,7 @@
     {
       prop: 'suggestedQuantity',
       label: '排产建议数量',
-      width: 154,
+      width: 136,
       fixed: 'right',
       formatter: (row) => (
         <ElInputNumber
@@ -623,14 +666,14 @@
           precision={2}
           controls={false}
           aria-label={`${row.taskNo}排产建议数量`}
-          class="scheduling-page__quantity-input"
+          class="w-full!"
         />
       )
     },
     {
       prop: 'suggestedCenter',
       label: '排产建议工作中心',
-      width: 250,
+      width: 216,
       fixed: 'right',
       formatter: (row) => (
         <ElSelect
@@ -663,7 +706,7 @@
             disabled={
               row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
             }
-            onClick={() => confirmTask(row)}
+            onClick={() => void confirmSingleTask(row)}
           />
           <ArtButtonMore
             list={taskMore(row)}
@@ -686,10 +729,7 @@
     return `${Number(value || 0)}${unit ? ` ${unit}` : ''}`
   }
   function availableQuantity(row: MesOperationTask): number {
-    return Math.max(
-      Number(row.plannedQuantity || 0) - Number(row.cumulativeCompletedQuantity || 0),
-      0
-    )
+    return Math.max(Number(row.pendingScheduleQuantity || 0), 0)
   }
   function centerCapacityHours(center: MesProductionScopeCenter): number {
     const minutes = Number(
@@ -707,9 +747,7 @@
     if (!drafts[row.id]) {
       const centers = eligibleCenters(row)
       drafts[row.id] = {
-        quantity: Number(
-          row.pendingScheduleQuantity || row.scheduledQuantity || availableQuantity(row)
-        ),
+        quantity: availableQuantity(row),
         workCenterId: row.allocations?.[0]?.workCenterId || row.workCenterId || centers[0]?.id || ''
       }
     }
@@ -751,6 +789,17 @@
   }
   function handleSelectionChange(rows: MesOperationTask[]): void {
     selectedRows.value = rows
+  }
+  function handleSortChange({
+    prop,
+    order
+  }: {
+    prop: string
+    order: 'ascending' | 'descending' | null
+  }): void {
+    taskSort.prop =
+      order && (prop === 'plannerNameSnapshot' || prop === 'dispatcherNameSnapshot') ? prop : ''
+    taskSort.order = order
   }
   function handleScopeChange(): void {
     filters.shiftScheduleId = ''
@@ -822,6 +871,9 @@
       { showMessage: !silent }
     )
     return true
+  }
+  async function confirmSingleTask(row: MesOperationTask): Promise<void> {
+    if (await confirmTask(row)) await loadWorkspace()
   }
   async function confirmSelected(): Promise<void> {
     if (!selectedRows.value.length) return
@@ -1096,7 +1148,20 @@
         > .el-select,
         > .el-date-editor {
           width: 100%;
+          min-width: 0;
+          max-width: 100%;
         }
+      }
+
+      :deep(.el-date-editor.el-input__wrapper) {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      :deep(.el-date-editor .el-range-input) {
+        min-width: 0;
       }
     }
 
@@ -1187,17 +1252,6 @@
           box-shadow: 0 0 0 3px var(--el-color-success-light-8);
         }
       }
-    }
-
-    &__order-type {
-      display: inline-flex;
-      gap: 4px;
-      align-items: center;
-      min-width: 0;
-    }
-
-    &__quantity-input {
-      width: 100%;
     }
 
     @media (width <= 1380px) {

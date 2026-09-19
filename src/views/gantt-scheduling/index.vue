@@ -202,7 +202,7 @@
   import { computed, reactive, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { storeToRefs } from 'pinia'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import ArtIconButton from '@/components/core/widget/art-icon-button/index.vue'
   import ArtPermissionGuard from '@/components/core/feedback/art-permission-guard/index.vue'
@@ -217,6 +217,7 @@
   } from '@/components/business/production-work-center-navigator/index.vue'
   import { useAuth } from '@/hooks/core/useAuth'
   import { useWorkspaceFocus } from '@/hooks/core/useWorkspaceFocus'
+  import { useArtFeedback } from '@/hooks/core/useArtFeedback'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
   import TreeUtils from '@/utils/tree'
   import {
@@ -236,6 +237,7 @@
   import ShiftPlanDialog, { type ShiftPlanDialogOpenData } from './modules/shift-plan-dialog.vue'
   import {
     allocationsForCenter,
+    defaultWorkCenterIdForTask,
     buildCalendarDayMap,
     buildTimelineDates,
     createAutomaticShiftPlan,
@@ -285,6 +287,7 @@
 
   const router = useRouter()
   const { hasAuth } = useAuth()
+  const { confirmAction } = useArtFeedback()
   const { focusMode } = useWorkspaceFocus()
   const tenantScopeStore = useTenantScopeStore()
   const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
@@ -417,7 +420,7 @@
 
   function taskBelongsToCenter(task: MesOperationTask, centerId: string): boolean {
     return (
-      task.workCenterId === centerId ||
+      defaultWorkCenterIdForTask(task) === centerId ||
       (task.allocations || []).some(
         (allocation) => allocation.workCenterId === centerId && allocation.status !== 'closed'
       )
@@ -662,7 +665,7 @@
         ElMessage.warning('当前计划期间产能不足，请延长计划期间后再自动排产')
         return
       }
-      await ElMessageBox.confirm(
+      await confirmAction(
         `将 ${task.operationName} 的未排数量按理论班次产能自动填充，是否继续？`,
         '自动排产',
         { confirmButtonText: '执行自动排产', cancelButtonText: '取消', type: 'warning' }
@@ -672,7 +675,7 @@
     }
     if (key === 'undo' || key === 'remove') {
       const removeAssignment = key === 'remove'
-      await ElMessageBox.confirm(
+      await confirmAction(
         removeAssignment
           ? `将 ${task.operationName} 从 ${center.code} · ${center.name} 移除，是否继续？`
           : `撤销 ${task.operationName} 在当前工作中心的全部班次排产，是否继续？`,
@@ -687,7 +690,7 @@
       return
     }
     if (key === 'close') {
-      await ElMessageBox.confirm(
+      await confirmAction(
         `结案后，该工序任务在其他工作中心的排产也会一并关闭。是否继续？`,
         '结案关单',
         { confirmButtonText: '确认结案', cancelButtonText: '取消', type: 'warning' }

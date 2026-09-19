@@ -429,7 +429,7 @@
 
     &__grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
       padding: 12px;
     }
@@ -483,6 +483,8 @@
     }
 
     &__identity {
+      flex-direction: column;
+      align-items: flex-start;
       padding-bottom: 8px;
       border-bottom: 1px solid var(--el-border-color-lighter);
 
@@ -525,6 +527,11 @@
     &__material {
       font-size: 10px;
       color: var(--el-text-color-secondary);
+    }
+
+    &__capacity {
+      flex-wrap: wrap;
+      justify-content: flex-start;
     }
 
     &__material {
