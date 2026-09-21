@@ -16,8 +16,8 @@ importers:
   .:
     dependencies:
       art-supabase-pro:
-        specifier: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/1ef83ca575b7604efa6481fa9bc454d7095e22ba.tar.gz
-        version: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/1ef83ca575b7604efa6481fa9bc454d7095e22ba.tar.gz(@floating-ui/dom@1.8.0)(@nuxt/kit@4.5.2(magic-string@1.2.2)(rolldown@1.2.5)(unplugin@2.3.11))(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@types/sortablejs@1.15.9)(@vue/compiler-sfc@3.5.40)(antlr4ng-cli@1.0.7)(core-js@3.50.0)(esbuild@0.28.2)(rolldown@1.2.5)(typescript@6.0.3)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.103.1)(tsx@4.23.12)(yaml@2.9.0))
+        specifier: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/cb23bb2bdf3bddabe6fd6c8a905d841e8014ef59.tar.gz
+        version: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/cb23bb2bdf3bddabe6fd6c8a905d841e8014ef59.tar.gz(@floating-ui/dom@1.8.0)(@nuxt/kit@4.5.2(magic-string@1.2.2)(rolldown@1.2.5)(unplugin@2.3.11))(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0)(@types/sortablejs@1.15.9)(@vue/compiler-sfc@3.5.40)(antlr4ng-cli@1.0.7)(core-js@3.50.0)(esbuild@0.28.2)(rolldown@1.2.5)(typescript@6.0.3)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.103.1)(tsx@4.23.12)(yaml@2.9.0))
       vue:
         specifier: 3.5.40
         version: 3.5.40(typescript@6.0.3)
@@ -1794,8 +1794,8 @@ packages:
   array-flatten@3.0.0:
     resolution: {integrity: sha512-zPMVc3ZYlGLNk4mpK1NzP2wg0ml9t7fUgDsayR5Y5rSzxQilzR9FGu/EH2jQOcKSAeAfWeylyW8juy3OkWRvNA==}
 
-  art-supabase-pro@https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/1ef83ca575b7604efa6481fa9bc454d7095e22ba.tar.gz:
-    resolution: {integrity: sha512-m2NrqPBkhEHlEbrEpf/zb1qqNErKzUONJqDU2H63uW8hmIhUeLW2snYHi5H1T9Q10usbtSUqnW4cz7hOgjKJfw==, tarball: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/1ef83ca575b7604efa6481fa9bc454d7095e22ba.tar.gz}
+  art-supabase-pro@https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/cb23bb2bdf3bddabe6fd6c8a905d841e8014ef59.tar.gz:
+    resolution: {integrity: sha512-KlrWalqU1B4iNr1kt3/slgfmK+k9nDQJ8gVMbZ66hTIFwunx1oWLj9cE2J1Kczjc35VtGxlltNGDq9ms1Ea2IA==, tarball: https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/cb23bb2bdf3bddabe6fd6c8a905d841e8014ef59.tar.gz}
     version: 1.0.0
     engines: {node: '>=22.0.0', pnpm: '>=11.9.0'}
 
@@ -5046,6 +5046,7 @@ snapshots:
       '@floating-ui/dom': 1.8.0
       '@tiptap/core': 3.31.0(@tiptap/pm@3.31.0)
       '@tiptap/pm': 3.31.0
+    optional: true
 
   '@tiptap/extension-bullet-list@3.31.0(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))':
     dependencies:
@@ -5835,7 +5836,7 @@ snapshots:
 
   array-flatten@3.0.0: {}
 
-  art-supabase-pro@https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/1ef83ca575b7604efa6481fa9bc454d7095e22ba.tar.gz(@floating-ui/dom@1.8.0)(@nuxt/kit@4.5.2(magic-string@1.2.2)(rolldown@1.2.5)(unplugin@2.3.11))(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@types/sortablejs@1.15.9)(@vue/compiler-sfc@3.5.40)(antlr4ng-cli@1.0.7)(core-js@3.50.0)(esbuild@0.28.2)(rolldown@1.2.5)(typescript@6.0.3)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.103.1)(tsx@4.23.12)(yaml@2.9.0)):
+  art-supabase-pro@https://gitee.com/wangyanghub/art-supabase-pro/repository/archive/cb23bb2bdf3bddabe6fd6c8a905d841e8014ef59.tar.gz(@floating-ui/dom@1.8.0)(@nuxt/kit@4.5.2(magic-string@1.2.2)(rolldown@1.2.5)(unplugin@2.3.11))(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0)(@types/sortablejs@1.15.9)(@vue/compiler-sfc@3.5.40)(antlr4ng-cli@1.0.7)(core-js@3.50.0)(esbuild@0.28.2)(rolldown@1.2.5)(typescript@6.0.3)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.103.1)(tsx@4.23.12)(yaml@2.9.0)):
     dependencies:
       '@element-plus/icons-vue': 2.3.2(vue@3.5.40(typescript@6.0.3))
       '@file-viewer/preset-all': 2.1.28(three@0.185.1)
@@ -5845,7 +5846,6 @@ snapshots:
       '@supabase/supabase-js': 2.112.3
       '@tailwindcss/vite': 4.3.3(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.103.1)(tsx@4.23.12)(yaml@2.9.0))
       '@tiptap/core': 3.31.0(@tiptap/pm@3.31.0)
-      '@tiptap/extension-bubble-menu': 3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0)
       '@tiptap/extension-character-count': 3.31.0(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))
       '@tiptap/extension-file-handler': 3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/extension-text-style@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0)))(@tiptap/pm@3.31.0)
       '@tiptap/extension-image': 3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))
@@ -5855,7 +5855,6 @@ snapshots:
       '@tiptap/extension-task-list': 3.31.0(@tiptap/extension-list@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))
       '@tiptap/extension-text-align': 3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))
       '@tiptap/extension-text-style': 3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))
-      '@tiptap/pm': 3.31.0
       '@tiptap/starter-kit': 3.31.0
       '@tiptap/vue-3': 3.31.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0)(vue@3.5.40(typescript@6.0.3))
       '@tresjs/core': 5.8.3(three@0.185.1)(vue@3.5.40(typescript@6.0.3))
@@ -5863,7 +5862,6 @@ snapshots:
       '@vue-flow/controls': 1.1.3(@vue-flow/core@1.48.2(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
       '@vue-flow/core': 1.48.2(vue@3.5.40(typescript@6.0.3))
       '@vue-flow/minimap': 1.5.4(@vue-flow/core@1.48.2(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
-      '@vue/reactivity': 3.5.40
       '@vueuse/core': 14.4.0(vue@3.5.40(typescript@6.0.3))
       axios: 1.19.0
       crypto-js: 4.2.0
@@ -5903,6 +5901,7 @@ snapshots:
       - '@rspack/core'
       - '@tiptap/extension-list'
       - '@tiptap/extensions'
+      - '@tiptap/pm'
       - '@types/sortablejs'
       - '@vue/compiler-sfc'
       - '@vue/composition-api'

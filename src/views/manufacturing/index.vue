@@ -97,6 +97,7 @@
         @success="handleSnapshotSaved"
       />
       <component :is="printSheetComponent" v-if="printSheetComponent" ref="printSheetRef" />
+      <component :is="qrLabelSheetComponent" v-if="qrLabelSheetComponent" ref="qrLabelSheetRef" />
       <component
         :is="dueDateDialogComponent"
         v-if="dueDateDialogComponent"
@@ -269,6 +270,9 @@
   const { component: printSheetComponent, load: loadPrintSheet } = useLazyComponent(
     () => import('./modules/work-order-print-sheet.vue')
   )
+  const { component: qrLabelSheetComponent, load: loadQrLabelSheet } = useLazyComponent(
+    () => import('./modules/work-order-qr-label-sheet.vue')
+  )
   const { component: dueDateDialogComponent, load: loadDueDateDialog } = useLazyComponent(
     () => import('./modules/work-order-due-date-dialog.vue')
   )
@@ -294,6 +298,7 @@
     handleOpen: (data: WorkOrderSnapshotDialogOpenData) => Promise<void>
   }>()
   const printSheetRef = ref<{ print: (rows: MesWorkOrder[]) => Promise<void> }>()
+  const qrLabelSheetRef = ref<{ print: (rows: MesWorkOrder[]) => Promise<void> }>()
   const dueDateDialogRef = ref<{
     handleOpen: (data: WorkOrderDueDateDialogOpenData) => Promise<void>
   }>()
@@ -723,6 +728,18 @@
           disabled: batchBusy.value,
           buttonProps: commonButtonProps,
           onClick: ({ selectedRows }) => handleBatchCommand('print', selectedRows as MesWorkOrder[])
+        },
+        {
+          key: 'print-qr',
+          label: '批量打印二维码标签',
+          icon: 'ri:qr-code-line',
+          permission: 'MesWorkOrder:Print',
+          selectionRequired: true,
+          hidden: isCrossTenantReadOnly.value,
+          disabled: batchBusy.value,
+          buttonProps: commonButtonProps,
+          onClick: ({ selectedRows }) =>
+            handleBatchCommand('print-qr', selectedRows as MesWorkOrder[])
         },
         {
           key: 'confirm',
@@ -1286,6 +1303,7 @@
         auth: 'MesWorkOrder:Copy'
       },
       { key: 'print', label: '打印', icon: 'ri:printer-line', auth: 'MesWorkOrder:Print' },
+      { key: 'print-qr', label: '二维码标签', icon: 'ri:qr-code-line', auth: 'MesWorkOrder:Print' },
       {
         key: 'annotate',
         label: '工单批注',
@@ -1552,6 +1570,16 @@
     await loadPrintSheet()
     await printSheetRef.value?.print(printableRows)
   }
+  async function printWorkOrderQrLabels(rows: MesWorkOrder[]): Promise<void> {
+    const result = await batchTransitionWorkOrders(
+      rows.map((row) => row.id),
+      'print'
+    )
+    notifyBatchResult(result, '二维码标签打印')
+    if (!result.successIds.length) return
+    await loadQrLabelSheet()
+    await qrLabelSheetRef.value?.print(rows.filter((row) => result.successIds.includes(row.id)))
+  }
   async function handleReloadSnapshot(row: MesWorkOrder): Promise<void> {
     await confirmAction(
       `将使用当前最新版本覆盖工单“${row.workOrderNo}”的 BOM 与工艺路线快照。仅待确认或异常工单可重读，工单确认后将保持执行基线。是否继续？`,
@@ -1582,6 +1610,8 @@
     try {
       if (command === 'print') {
         await printWorkOrders(rows)
+      } else if (command === 'print-qr') {
+        await printWorkOrderQrLabels(rows)
       } else {
         const result =
           command === 'reference'
@@ -1676,6 +1706,11 @@
     }
     if (action === 'print') {
       await printWorkOrders([row])
+      await tableRef.value?.refreshData()
+      return
+    }
+    if (action === 'print-qr') {
+      await printWorkOrderQrLabels([row])
       await tableRef.value?.refreshData()
       return
     }

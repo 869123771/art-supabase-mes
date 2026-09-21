@@ -18,8 +18,27 @@
         :references="references"
         :tenant-options="tenantOptions"
       />
+      <ArtSectionCard
+        v-if="readonly && detailRecord?.extensionSchemaSnapshot?.length"
+        title="工单专用参数"
+        subtitle="按创建或最近编辑时的单据类型配置固化。"
+        class="mb-4"
+      >
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div
+            v-for="field in detailRecord.extensionSchemaSnapshot"
+            :key="field.key"
+            class="grid gap-1"
+          >
+            <small class="text-gray-500">{{ field.label }}</small>
+            <strong>{{
+              extensionDisplayValue(field, detailRecord.extensionValues?.[field.key])
+            }}</strong>
+          </div>
+        </div>
+      </ArtSectionCard>
       <ArtForm
-        v-else
+        v-if="!readonly"
         ref="formRef"
         v-model="model"
         :items="formItems"
@@ -63,11 +82,29 @@
             @update:model-value="model.salespersonId = $event ?? null"
         /></template>
       </ArtForm>
+      <ArtForm
+        v-if="!readonly && activeExtensionFields.length"
+        v-model="extensionValues"
+        :items="extensionItems"
+        :span="8"
+        :gutter="20"
+        label-position="top"
+        :show-submit="false"
+        :show-reset="false"
+      />
+      <WorkOrderDetails
+        ref="detailsRef"
+        v-model:rows="detailRows"
+        :readonly="readonly"
+        :action-permission="currentId ? 'MesWorkOrder:Edit' : 'MesWorkOrder:Add'"
+        class="mt-4"
+      />
     </div>
   </ArtDialog>
 </template>
 
 <script setup lang="ts">
+  import { ElMessage } from 'element-plus'
   import dayjs from 'dayjs'
   import { cloneDeep, pick } from 'lodash-es'
   import { normalizeNullableText } from '@/utils/form/normalize'
@@ -82,16 +119,23 @@
   import ArtEmployeeSelect from '@/components/business/art-employee-select/index.vue'
   import type { EmployeeIntegrationItem } from '@/api/integration/employees'
   import ArtEntitySummary from '@/components/core/surfaces/art-entity-summary/index.vue'
+  import ArtSectionCard from '@/components/core/surfaces/art-section-card/index.vue'
+  import type {
+    WorkOrderExtensionField,
+    WorkOrderExtensionValues
+  } from '@/types/business/work-order-extension'
   import { useUserStore } from '@/store/modules/user'
   import WorkOrderDetail from './work-order-detail.vue'
   import WorkOrderUrgencySegmented from './work-order-urgency-segmented.vue'
   import WorkOrderStatusTag from './work-order-status-tag.vue'
+  import WorkOrderDetails, { type WorkOrderDetailDraft } from './work-order-details.vue'
   import {
     calculatePlanFromEnd,
     calculatePlanFromStart,
     calculateProductionDays
   } from './work-order-plan'
   import {
+    fetchMesBomComponentOptions,
     fetchMesMaterialCategories,
     fetchMesMaterialOptions,
     fetchMesReferences,
@@ -141,6 +185,10 @@
   const { getDictMap } = storeToRefs(userStore)
   const readonly = ref(false)
   const detailRecord = ref<MesWorkOrder>()
+  const detailsRef = ref<InstanceType<typeof WorkOrderDetails>>()
+  const detailRows = ref<WorkOrderDetailDraft[]>([])
+  const extensionValues = reactive<WorkOrderExtensionValues>({})
+  let bomOptionsRequestId = 0
   const model = reactive<WorkOrderFormModel>({
     tenantId: '',
     workOrderNo: '',
@@ -187,6 +235,54 @@
   const option = (items: Array<{ id: string; code: string; name: string }>) =>
     items.map((item) => ({ label: `${item.name} · ${item.code}`, value: item.id }))
   const locked = computed(() => readonly.value)
+  const activeExtensionFields = computed<WorkOrderExtensionField[]>(
+    () =>
+      references.value.documentTypes.find((item) => item.id === model.workOrderTypeId)
+        ?.extensionFields ?? []
+  )
+  const extensionDisplayValue = (field: WorkOrderExtensionField, value: unknown) => {
+    if (value === null || value === undefined || value === '') return '—'
+    if (field.valueType !== 'material') return String(value)
+    const material = references.value.materials.find((item) => item.id === value)
+    return material ? `${material.code} · ${material.name}` : String(value)
+  }
+  const extensionItems = computed<FormItem[]>(() => [
+    { key: 'extensionHeader', label: '工单类型专用参数', type: 'divider', span: 24 },
+    ...activeExtensionFields.value.map((field) => ({
+      key: field.key,
+      label: field.label,
+      type:
+        field.valueType === 'number'
+          ? ('number' as const)
+          : field.valueType === 'material'
+            ? ('select' as const)
+            : ('input' as const),
+      options:
+        field.valueType === 'material'
+          ? references.value.materials.map((item) => ({
+              label: `${item.code} · ${item.name}`,
+              value: item.id
+            }))
+          : undefined,
+      props:
+        field.valueType === 'number'
+          ? { class: 'w-full!', precision: 4 }
+          : field.valueType === 'material'
+            ? {
+                class: 'w-full!',
+                filterable: true,
+                clearable: true,
+                placeholder: `请选择${field.label}`
+              }
+            : {
+                maxlength: 200,
+                placeholder: field.sourceComponentTypeId
+                  ? '从 BOM 自动带入，可修改'
+                  : `请输入${field.label}`
+              },
+      help: field.sourceComponentTypeId ? '按 BOM 组件类型自动带入，允许人工调整。' : undefined
+    }))
+  ])
   const dictionaryOptions = (code: string) => getDictMap.value[code] ?? []
   const employeeSelection = (id?: string | null): EmployeeIntegrationItem[] => {
     const item = references.value.employees.find((employee) => employee.id === id)
@@ -227,7 +323,12 @@
       label: '工单类型',
       type: 'select',
       options: option(references.value.documentTypes),
-      props: { disabled: locked.value, clearable: true, filterable: true }
+      props: {
+        disabled: locked.value,
+        clearable: true,
+        filterable: true,
+        onChange: handleWorkOrderTypeChange
+      }
     },
     {
       key: 'projectId',
@@ -438,6 +539,32 @@
   }
   function handleMaterialChange(_value: unknown, rows: DataSelectRecord[]): void {
     applyMaterial(rows[0] as MesMaterialOption | undefined)
+    void populateExtensionFromBom()
+  }
+  async function populateExtensionFromBom(): Promise<void> {
+    const requestId = ++bomOptionsRequestId
+    const sourcedFields = activeExtensionFields.value.filter((field) => field.sourceComponentTypeId)
+    if (!model.tenantId || !model.materialId || !sourcedFields.length) return
+    try {
+      const items = await fetchMesBomComponentOptions(
+        model.tenantId,
+        model.materialId,
+        model.plannedStartDate || dayjs().format('YYYY-MM-DD')
+      )
+      if (requestId !== bomOptionsRequestId) return
+      for (const field of sourcedFields) {
+        const component = items.find(
+          (item) => item.componentTypeId === field.sourceComponentTypeId
+        )?.component
+        extensionValues[field.key] = component?.id ?? null
+      }
+    } catch {
+      ElMessage.warning('BOM 组件带入失败，请手动填写工单专用参数')
+    }
+  }
+  function handleWorkOrderTypeChange(): void {
+    for (const key of Object.keys(extensionValues)) delete extensionValues[key]
+    void populateExtensionFromBom()
   }
   const workOrderInputKeys = [
     'tenantId',
@@ -468,6 +595,18 @@
     const payload = pick(model, workOrderInputKeys)
     return {
       ...payload,
+      extensionValues: cloneDeep(extensionValues),
+      details: detailRows.value.map((row, index) => ({
+        area: row.area.trim(),
+        number: row.number.trim(),
+        lengthMm: Number(row.lengthMm),
+        pieces: Number(row.pieces),
+        widthMm: Number(row.widthMm),
+        areaSqm: Number(row.areaSqm),
+        areaOverridden: row.areaOverridden,
+        remark: row.remark.trim(),
+        sortOrder: (index + 1) * 10
+      })),
       workOrderNo: payload.workOrderNo.trim(),
       constructionNo: normalizeNullableText(payload.constructionNo),
       remark: payload.remark.trim(),
@@ -480,6 +619,26 @@
     }
   }
   const handleOpen = async (data: WorkOrderDialogOpenData) => {
+    bomOptionsRequestId++
+    detailRows.value.splice(
+      0,
+      detailRows.value.length,
+      ...(data.row?.details ?? []).map((row) => ({
+        clientId: row.id || crypto.randomUUID(),
+        area: row.area,
+        number: row.number,
+        lengthMm: row.lengthMm,
+        pieces: row.pieces,
+        packedPieces: row.packedPieces ?? 0,
+        widthMm: row.widthMm,
+        areaSqm: row.areaSqm,
+        areaOverridden: row.areaOverridden,
+        remark: row.remark,
+        sortOrder: row.sortOrder
+      }))
+    )
+    for (const key of Object.keys(extensionValues)) delete extensionValues[key]
+    Object.assign(extensionValues, data.row?.extensionValues ?? {})
     tenantOptions.value = data.tenantOptions
     detailRecord.value = data.row
     readonly.value =
@@ -584,6 +743,7 @@
       onConfirm: async () => {
         try {
           await formRef.value?.validate()
+          if (!detailsRef.value?.validate()) return false
           const payload = buildPayload()
           await saveWorkOrder(payload, currentId.value || undefined)
           emit('success', currentId.value ? 'edit' : 'add')

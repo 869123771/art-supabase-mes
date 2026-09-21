@@ -20,6 +20,7 @@ import type {
   MesProductionScope,
   MesProductionScopeCenter,
   MesReferenceOption,
+  MesSnapshotReference,
   MesReferences,
   MesSchedulingRule,
   MesSchedulingRuleInput,
@@ -51,7 +52,10 @@ const writeOptions = {
 export async function fetchWorkOrders(params: MesListQuery, options?: { signal?: AbortSignal }) {
   let query = supabase
     .from('mes_work_order')
-    .select('*', { count: 'exact' })
+    .select(
+      '*,details:mes_work_order_detail(id,area,number,length_mm,pieces,packed_pieces,linear_meters,width_mm,area_sqm,area_overridden,remark,sort_order)',
+      { count: 'exact' }
+    )
     .order('update_time', { ascending: false })
     .range((params.current - 1) * params.size, params.current * params.size - 1)
   if (params.tenantId) query = query.eq('tenant_id', params.tenantId)
@@ -95,22 +99,31 @@ export async function fetchWorkOrders(params: MesListQuery, options?: { signal?:
     () => (options?.signal ? query.abortSignal(options.signal) : query),
     readOptions
   )
-  return { data: data ?? [], total: total ?? 0 }
+  return {
+    data: (data ?? []).map((row) => ({
+      ...row,
+      details: [...(row.details ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
+    })),
+    total: total ?? 0
+  }
 }
 
 export async function saveWorkOrder(input: MesWorkOrderInput, id?: string) {
-  const payload = keysToSnakeDeep(input)
-  await responseHandle(
+  const { details = [], ...header } = input
+  const { extensionValues, ...standardHeader } = header
+  const { data } = await responseHandle<string>(
     () =>
-      id
-        ? supabase
-            .from('mes_work_order')
-            .update(payload, { count: 'exact' })
-            .eq('id', id)
-            .select('id')
-        : supabase.from('mes_work_order').insert(payload, { count: 'exact' }).select('id'),
-    writeOptions
+      supabase.rpc('mes_save_work_order_with_details', {
+        p_id: id || null,
+        p_header: {
+          ...keysToSnakeDeep(standardHeader),
+          extension_values: extensionValues ?? {}
+        },
+        p_details: keysToSnakeDeep(details)
+      }),
+    { ...writeOptions, requireAffected: false }
   )
+  return data ?? ''
 }
 
 export async function importWorkOrders(rows: MesWorkOrderInput[]) {
@@ -258,6 +271,7 @@ export async function fetchWorkOrderSnapshotReferences(
     )
   ])
   return {
+    componentTypes: [],
     materials: (materials.data ?? []).map((item) => ({
       id: item.id,
       code: item.materialCode,
@@ -276,6 +290,34 @@ export async function fetchWorkOrderSnapshotReferences(
     departments: departments.data ?? [],
     workCenters: workCenters.data ?? []
   }
+}
+
+export async function fetchWorkOrderComponentTypes(
+  tenantId: string
+): Promise<MesSnapshotReference[]> {
+  const { data } = await fetchAllRangePages<{
+    id: string
+    componentTypeCode: string
+    componentTypeName: string
+    enabled: boolean
+  }>(({ from, to }) =>
+    responseHandle(
+      () =>
+        supabase
+          .from('mdm_component_type')
+          .select('id,component_type_code,component_type_name,enabled')
+          .eq('tenant_id', tenantId)
+          .order('sort_order')
+          .range(from, to),
+      readOptions
+    )
+  )
+  return (data ?? []).map((item) => ({
+    id: item.id,
+    code: item.componentTypeCode,
+    name: item.componentTypeName,
+    disabled: !item.enabled
+  }))
 }
 
 export async function batchTransitionWorkOrders(ids: string[], action: string) {
@@ -676,7 +718,12 @@ export async function fetchMesReferences(tenantId?: string): Promise<MesReferenc
     .order('customer_name')
   if (tenantId) customerQuery = customerQuery.eq('tenant_id', tenantId)
 
-  const [referenceResult, customerResult] = await Promise.all([
+  let documentTypeQuery = supabase
+    .from('mdm_document_type')
+    .select('id,extension_fields')
+    .eq('menu_id', 'e1000000-0000-4000-8000-000000000002')
+  if (tenantId) documentTypeQuery = documentTypeQuery.eq('tenant_id', tenantId)
+  const [referenceResult, customerResult, documentTypeResult] = await Promise.all([
     responseHandle<Omit<MesReferences, 'customers'>>(
       () => supabase.rpc('mes_work_order_references', { p_tenant_id: tenantId || null }),
       { ...readOptions, showErrorMessage: false }
@@ -684,16 +731,62 @@ export async function fetchMesReferences(tenantId?: string): Promise<MesReferenc
     responseHandle<MesReferenceOption[]>(() => customerQuery, {
       ...readOptions,
       showErrorMessage: false
-    })
+    }),
+    responseHandle<Array<{ id: string; extensionFields: MesReferenceOption['extensionFields'] }>>(
+      () => documentTypeQuery,
+      { ...readOptions, showErrorMessage: false }
+    )
   ])
+  const fieldsById = new Map(
+    (documentTypeResult.data ?? []).map((row) => [row.id, row.extensionFields ?? []])
+  )
   return {
     materials: referenceResult.data?.materials ?? [],
     customers: customerResult.data ?? [],
     projects: referenceResult.data?.projects ?? [],
-    documentTypes: referenceResult.data?.documentTypes ?? [],
+    documentTypes: (referenceResult.data?.documentTypes ?? [])
+      .filter((row) => fieldsById.has(row.id))
+      .map((row) => ({
+        ...row,
+        extensionFields: fieldsById.get(row.id) ?? []
+      })),
     employees: referenceResult.data?.employees ?? [],
     workCenters: referenceResult.data?.workCenters ?? []
   }
+}
+
+export interface MesBomComponentOption {
+  id: string
+  componentTypeId: string | null
+  sequenceNo: number
+  component: { id: string; materialCode: string; materialName: string } | null
+}
+
+export async function fetchMesBomComponentOptions(
+  tenantId: string,
+  materialId: string,
+  asOfDate?: string
+) {
+  let query = supabase
+    .from('mdm_bom')
+    .select(
+      'items:mdm_bom_item(id,component_type_id,sequence_no,component:mdm_material!mdm_bom_item_material_fkey(id,material_code,material_name))'
+    )
+    .eq('tenant_id', tenantId)
+    .eq('material_id', materialId)
+    .in('status', ['effective', 'review', 'changing', 'design'])
+    .order('update_time', { ascending: false })
+    .limit(1)
+  if (asOfDate && /^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) {
+    query = query
+      .or(`effective_from.is.null,effective_from.lte.${asOfDate}`)
+      .or(`effective_to.is.null,effective_to.gte.${asOfDate}`)
+  }
+  const { data } = await responseHandle<Array<{ items: MesBomComponentOption[] }>>(() => query, {
+    ...readOptions,
+    showErrorMessage: false
+  })
+  return [...(data?.[0]?.items ?? [])].sort((a, b) => a.sequenceNo - b.sequenceNo)
 }
 
 export async function fetchMesMaterialOptions(

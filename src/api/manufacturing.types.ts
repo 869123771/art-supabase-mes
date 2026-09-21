@@ -14,7 +14,25 @@ export interface MesReferenceOption {
   name: string
   specification?: string
   unit?: string
+  extensionFields?: WorkOrderExtensionField[]
 }
+
+export interface MesWorkOrderDetail {
+  id?: string
+  area: string
+  number: string
+  packedPieces?: number
+  lengthMm: number
+  pieces: number
+  linearMeters: number
+  widthMm: number
+  areaSqm: number
+  areaOverridden: boolean
+  remark: string
+  sortOrder: number
+}
+
+export type MesWorkOrderDetailInput = Omit<MesWorkOrderDetail, 'id' | 'linearMeters'>
 
 export interface MesProductionDepartment {
   id: string
@@ -106,6 +124,7 @@ export interface MesWorkOrderBomItemSnapshot {
   componentMaterialId: string
   componentMaterialCode: string
   componentMaterialName: string
+  componentTypeId?: string | null
   componentSpecification: string
   sequenceNo: number
   quantity: number
@@ -206,9 +225,11 @@ export interface MesSnapshotReference {
   id: string
   code?: string
   name: string
+  disabled?: boolean
 }
 
 export interface MesWorkOrderSnapshotReferences {
+  componentTypes: MesSnapshotReference[]
   materials: MesSnapshotReference[]
   units: MesSnapshotReference[]
   warehouses: MesSnapshotReference[]
@@ -230,6 +251,9 @@ export interface MesWorkOrder {
   tenantId: string
   workOrderNo: string
   workOrderTypeId: string | null
+  extensionValues: WorkOrderExtensionValues
+  extensionSchemaSnapshot: WorkOrderExtensionField[]
+  details: MesWorkOrderDetail[]
   projectId: string | null
   constructionNo: string | null
   materialId: string
@@ -316,7 +340,7 @@ export type MesWorkOrderInput = Pick<
   | 'specificationQuantity'
   | 'salesOrderNo'
   | 'salesOrderQuantity'
->
+> & { extensionValues?: WorkOrderExtensionValues; details?: MesWorkOrderDetailInput[] }
 
 export interface MesOperationTask {
   id: string
@@ -571,3 +595,7 @@ export interface MesMaterialOptionQuery {
   current: number
   size: number
 }
+import type {
+  WorkOrderExtensionField,
+  WorkOrderExtensionValues
+} from '@/types/business/work-order-extension'

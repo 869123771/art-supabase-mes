@@ -161,6 +161,7 @@
                 <strong>任务状态</strong>
                 <span><i class="is-processing" />生产中</span>
                 <span><i class="is-adjusting" />调整中</span>
+                <span><i class="is-excluded" />无需排产</span>
                 <span><i class="is-pending" />待生产</span>
                 <span><i class="is-over-capacity" />超产能</span>
               </div>
@@ -193,6 +194,7 @@
       </div>
 
       <ShiftPlanDialog ref="shiftPlanDialogRef" @success="loadWorkspace" />
+      <TaskDueDateDialog ref="taskDueDateDialogRef" @success="handleTaskDueDateSuccess" />
     </div>
   </ArtPermissionGuard>
 </template>
@@ -228,6 +230,7 @@
     transitionOperationTask,
     type MesGanttCalendarDay,
     type MesOperationTask,
+    type MesBatchResult,
     type MesOperationTaskShiftPlanItem,
     type MesProductionDepartment,
     type MesProductionScopeCenter,
@@ -235,6 +238,7 @@
   } from '@mes/api'
   import GanttScheduleBoard, { type GanttWorkCenterGroup } from './modules/gantt-schedule-board.vue'
   import ShiftPlanDialog, { type ShiftPlanDialogOpenData } from './modules/shift-plan-dialog.vue'
+  import TaskDueDateDialog from '../manufacturing/modules/task-due-date-dialog.vue'
   import {
     allocationsForCenter,
     defaultWorkCenterIdForTask,
@@ -253,6 +257,7 @@
     'MesScheduling:View',
     'MesScheduling:AutoSchedule',
     'MesOperationTask:Schedule',
+    'MesOperationTask:MaintainDueDate',
     'MesOperationTask:Close'
   ] as const
   void declaredPermissions
@@ -293,6 +298,7 @@
   const { effectiveTenantId, tenantOptions } = storeToRefs(tenantScopeStore)
   const productionTree = new TreeUtils({ deepClone: false })
   const shiftPlanDialogRef = ref<{ handleOpen: (data: ShiftPlanDialogOpenData) => Promise<void> }>()
+  const taskDueDateDialogRef = ref<InstanceType<typeof TaskDueDateDialog>>()
   const state = reactive<PageState>({
     loading: false,
     scopeLoading: false,
@@ -639,6 +645,10 @@
     center: MesProductionScopeCenter,
     key: string
   ): Promise<void> {
+    if (key === 'due-date') {
+      await taskDueDateDialogRef.value?.handleOpen({ rows: [task] })
+      return
+    }
     if (key === 'specified') {
       await shiftPlanDialogRef.value?.handleOpen({
         mode: 'specified',
@@ -697,6 +707,15 @@
       )
       await transitionOperationTask(task.id, 'close')
       await loadWorkspace()
+    }
+  }
+
+  async function handleTaskDueDateSuccess(result: MesBatchResult): Promise<void> {
+    if (result.successIds.length) {
+      ElMessage.success('要求完工日期已更新')
+      await loadWorkspace()
+    } else {
+      ElMessage.warning(result.failures[0]?.message || '要求完工日期未更新，请刷新后重试')
     }
   }
 
@@ -909,6 +928,11 @@
 
         &.is-adjusting {
           background: var(--el-color-warning-light-5);
+        }
+
+        &.is-excluded {
+          background: var(--art-gray-200);
+          border: 1px solid var(--el-text-color-placeholder);
         }
 
         &.is-pending {

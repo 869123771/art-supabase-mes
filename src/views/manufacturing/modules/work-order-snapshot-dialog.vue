@@ -102,7 +102,11 @@
     MesWorkOrderRouteStepSnapshot,
     MesWorkOrderSnapshotReferences
   } from '@mes/api'
-  import { fetchWorkOrderSnapshotReferences, saveWorkOrderSnapshot } from '@mes/api'
+  import {
+    fetchWorkOrderComponentTypes,
+    fetchWorkOrderSnapshotReferences,
+    saveWorkOrderSnapshot
+  } from '@mes/api'
   import { calculateOperationQuantity } from './work-order-plan'
   import WorkOrderSnapshotEditor, {
     type WorkOrderSnapshotEditorOpenData
@@ -135,6 +139,7 @@
   const mode = ref<WorkOrderSnapshotMode>('bom')
   const canEdit = ref(false)
   const references = shallowRef<MesWorkOrderSnapshotReferences>({
+    componentTypes: [],
     materials: [],
     units: [],
     warehouses: [],
@@ -189,6 +194,14 @@
   const bomColumns: ColumnOption<WorkOrderBomDisplayItem>[] = [
     { type: 'index', label: '序号', width: 70 },
     { prop: 'componentMaterialCode', label: '组件编码', minWidth: 150 },
+    {
+      prop: 'componentTypeId',
+      label: '组件类型',
+      minWidth: 130,
+      formatter: (row) =>
+        references.value.componentTypes.find((entry) => entry.id === row.componentTypeId)?.name ||
+        '—'
+    },
     {
       prop: 'componentMaterialName',
       label: '组件名称',
@@ -563,9 +576,20 @@
     record.value = data.row
     mode.value = data.mode
     canEdit.value = data.canEdit
-    references.value = data.canEdit
-      ? await fetchWorkOrderSnapshotReferences(data.row.tenantId)
-      : { materials: [], units: [], warehouses: [], departments: [], workCenters: [] }
+    const [snapshotReferences, componentTypes] = await Promise.all([
+      data.canEdit
+        ? fetchWorkOrderSnapshotReferences(data.row.tenantId)
+        : Promise.resolve({
+            componentTypes: [],
+            materials: [],
+            units: [],
+            warehouses: [],
+            departments: [],
+            workCenters: []
+          }),
+      data.mode === 'bom' ? fetchWorkOrderComponentTypes(data.row.tenantId) : Promise.resolve([])
+    ])
+    references.value = { ...snapshotReferences, componentTypes }
     const dictionaryCodes =
       data.mode === 'route'
         ? [

@@ -19,6 +19,7 @@
     <div class="schedule-board__column-header" aria-hidden="true">
       <span>机台</span>
       <span>生产工单 / 物料</span>
+      <span>要求完工时间</span>
       <span>分配</span>
       <span>完工</span>
       <span>待加工</span>
@@ -78,6 +79,16 @@
               <span :title="materialLabel(task)">{{ materialLabel(task) }}</span>
               <small :title="projectLabel(task)">{{ projectLabel(task) }}</small>
             </div>
+            <div class="schedule-board__due-date">
+              <time
+                v-if="task.requiredCompletionDate"
+                :datetime="task.requiredCompletionDate"
+                :title="`要求完工时间：${task.requiredCompletionDate}`"
+              >
+                {{ task.requiredCompletionDate }}
+              </time>
+              <span v-else>未设置</span>
+            </div>
             <template v-for="metric in taskMetrics(task, group.center.id)" :key="metric.key">
               <strong class="schedule-board__quantity" :class="`is-${metric.key}`">
                 {{ formatQuantity(metric.value) }}
@@ -97,7 +108,11 @@
                 type="button"
                 class="schedule-board__cell"
                 :class="cellClasses(task, group.center, slot)"
-                :disabled="!isSlotAvailable(group.center.departmentId, slot)"
+                :disabled="
+                  !isSlotAvailable(group.center.departmentId, slot) ||
+                  !canSchedule ||
+                  !canAdjustShiftPlan(task)
+                "
                 :draggable="canDrag(task, group.center.id, slot)"
                 :aria-label="cellAriaLabel(task, group.center, slot)"
                 :title="cellTitle(task, group.center, slot)"
@@ -161,6 +176,7 @@
     completionByAllocation,
     isShiftFinished,
     taskQuantitySummary,
+    canAdjustShiftPlan,
     taskTone,
     taskToneLabel,
     theoreticalShiftQuantity,
@@ -292,7 +308,7 @@
   }
 
   function taskActions(task: MesOperationTask, centerId: string): ButtonMoreItem[] {
-    const locked = task.operationStatus === 'started' || task.scheduleLocked
+    const locked = !canAdjustShiftPlan(task)
     const hasPlan = allocationsForCenter(task, centerId).some((allocation) => allocation.shiftIndex)
     const actions: ButtonMoreItem[] = [
       {
@@ -322,6 +338,13 @@
         icon: 'ri:link-unlink-m',
         auth: 'MesOperationTask:Schedule',
         disabled: locked
+      },
+      {
+        key: 'due-date',
+        label: '修改要求完工日期',
+        icon: 'ri:calendar-check-line',
+        auth: 'MesOperationTask:MaintainDueDate',
+        disabled: task.operationStatus === 'closed' || task.schedulingStatus === 'closed'
       },
       {
         key: 'close',
@@ -385,17 +408,14 @@
     center: MesProductionScopeCenter,
     slot: GanttShiftSlot
   ): void {
-    if (!props.canSchedule || task.operationStatus === 'started' || task.scheduleLocked) return
+    if (!props.canSchedule || !canAdjustShiftPlan(task)) return
     if (!isSlotAvailable(center.departmentId, slot)) return
     emit('edit-cell', task, center, slot)
   }
 
   function canDrag(task: MesOperationTask, centerId: string, slot: GanttShiftSlot): boolean {
     return Boolean(
-      props.canSchedule &&
-      task.operationStatus !== 'started' &&
-      !task.scheduleLocked &&
-      allocationAt(task, centerId, slot)
+      props.canSchedule && canAdjustShiftPlan(task) && allocationAt(task, centerId, slot)
     )
   }
 
@@ -465,17 +485,24 @@
       `项目名称：${order?.projectNameSnapshot || '—'}`,
       `工序序列 / 工序号：${task.sequenceNo} / ${task.operationCode}`,
       `工序名称：${task.operationName}`,
+      `要求完工日期：${task.requiredCompletionDate || '未设置'}`,
       `数量：${allocation ? formatQuantity(Number(allocation.quantity)) : '未排产'}`,
       `预计加工时间：${formatQuantity(Number(task.estimatedWorkMinutes || 0) / 60)} 小时`,
       `理论班次产能：${formatQuantity(capacity)}`,
-      allocation ? '双击修改，拖拽可调整班次' : '双击录入排产数量'
+      !canAdjustShiftPlan(task)
+        ? task.schedulingStatus === 'no_schedule'
+          ? '该工序任务为无需排产状态，不可调整班次计划'
+          : '当前任务状态不允许调整班次计划'
+        : allocation
+          ? '双击修改，拖拽可调整班次'
+          : '双击录入排产数量'
     ].join('\n')
   }
 </script>
 
 <style scoped lang="scss">
   .schedule-board {
-    --info-width: 752px;
+    --info-width: 864px;
     --slot-width: 84px;
     --gantt-processing: #22a06b;
     --gantt-adjusting: #f4bd62;
@@ -568,7 +595,7 @@
       top: 52px;
       z-index: 8;
       display: grid;
-      grid-template-columns: 148px 210px repeat(5, 68px) 54px;
+      grid-template-columns: 148px 210px 112px repeat(5, 68px) 54px;
       align-items: center;
       height: 52px;
       color: var(--el-text-color-secondary);
@@ -587,6 +614,10 @@
         &:first-child,
         &:nth-child(2) {
           text-align: left;
+        }
+
+        &:nth-child(3) {
+          text-align: center;
         }
       }
     }
@@ -704,7 +735,7 @@
 
     &__task-info {
       display: grid;
-      grid-template-columns: 148px 210px repeat(5, 68px) 54px;
+      grid-template-columns: 148px 210px 112px repeat(5, 68px) 54px;
       align-items: center;
       min-width: 0;
       box-shadow: inset 3px 0 0 var(--el-text-color-placeholder);
@@ -801,6 +832,22 @@
         margin-top: 2px;
         font-size: 9px;
         color: var(--el-text-color-secondary);
+      }
+    }
+
+    &__due-date {
+      min-width: 0;
+      padding: 0 4px;
+      overflow: hidden;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--el-text-color-regular);
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+
+      span {
+        color: var(--el-text-color-placeholder);
       }
     }
 
@@ -968,12 +1015,12 @@
     }
 
     @media (width <= 1280px) {
-      --info-width: 642px;
+      --info-width: 742px;
       --slot-width: 78px;
 
       &__column-header,
       &__task-info {
-        grid-template-columns: 126px 176px repeat(5, 58px) 50px;
+        grid-template-columns: 126px 176px 100px repeat(5, 58px) 50px;
       }
     }
   }

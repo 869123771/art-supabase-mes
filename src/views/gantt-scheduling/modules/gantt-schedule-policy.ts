@@ -31,7 +31,7 @@ export interface TaskQuantitySummary {
   unscheduled: number
 }
 
-export type GanttTaskTone = 'processing' | 'adjusting' | 'pending' | 'over-capacity'
+export type GanttTaskTone = 'processing' | 'adjusting' | 'pending' | 'over-capacity' | 'excluded'
 
 const roundQuantity = (value: number): number => Number(Math.max(value, 0).toFixed(2))
 
@@ -111,9 +111,13 @@ export function taskQuantitySummary(
   const hasActiveAllocations = (task.allocations || []).some(
     (allocation) => allocation.status !== 'closed'
   )
+  const hasImplicitAssignment =
+    !hasActiveAllocations &&
+    defaultCenterId === workCenterId &&
+    task.schedulingStatus !== 'no_schedule'
   const assigned = centerAllocations.length
     ? centerAllocations.reduce((total, allocation) => total + Number(allocation.quantity || 0), 0)
-    : !hasActiveAllocations && defaultCenterId === workCenterId
+    : hasImplicitAssignment
       ? Math.max(
           Number(task.plannedQuantity || 0) - Number(task.cumulativeCompletedQuantity || 0),
           0
@@ -128,7 +132,7 @@ export function taskQuantitySummary(
         (total, allocation) => total + Number(completionMap.get(allocation.id) || 0),
         0
       )
-    : !hasActiveAllocations && defaultCenterId === workCenterId
+    : hasImplicitAssignment
       ? Number(task.cumulativeCompletedQuantity || task.completedQuantity || 0)
       : 0
   return {
@@ -190,6 +194,7 @@ export function taskTone(
       slot && Number(allocation.quantity || 0) > theoreticalShiftQuantity(task, slot.workMinutes)
     )
   })
+  if (task.schedulingStatus === 'no_schedule') return 'excluded'
   if (overCapacity) return 'over-capacity'
   if (task.operationStatus === 'started') return 'processing'
   if (task.scheduleLocked || taskQuantitySummary(task, workCenterId).unscheduled > 0)
@@ -199,11 +204,21 @@ export function taskTone(
 
 export function taskToneLabel(tone: GanttTaskTone): string {
   return {
+    excluded: '无需排产',
     processing: '生产中',
     adjusting: '调整中',
     pending: '待生产',
     'over-capacity': '超产能'
   }[tone]
+}
+
+export function canAdjustShiftPlan(task: MesOperationTask): boolean {
+  return (
+    !task.deletedAt &&
+    !task.scheduleLocked &&
+    ['pending', 'scheduled'].includes(task.schedulingStatus) &&
+    !['started', 'completed', 'closed'].includes(task.operationStatus)
+  )
 }
 
 export function isShiftFinished(slot: GanttShiftSlot): boolean {

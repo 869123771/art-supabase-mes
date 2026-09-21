@@ -13,6 +13,11 @@
         compact
       />
 
+      <dl class="shift-plan-dialog__due-date">
+        <dt>工序要求完工日期</dt>
+        <dd>{{ task?.requiredCompletionDate || '未设置' }}</dd>
+      </dl>
+
       <ArtForm
         ref="formRef"
         v-model="form.data"
@@ -296,6 +301,23 @@
   .shift-plan-dialog {
     display: grid;
     gap: var(--art-space-4);
+
+    &__due-date {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--art-space-2);
+      align-items: baseline;
+      justify-content: space-between;
+      margin: 0;
+      color: var(--el-text-color-secondary);
+
+      dd {
+        margin: 0;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--el-text-color-primary);
+      }
+    }
 
     &__balance {
       display: flex;

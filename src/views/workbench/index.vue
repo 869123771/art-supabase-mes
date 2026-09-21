@@ -21,7 +21,9 @@
         subtitle="以生产订单为主线，把排程、派工、报工、质检和完工沉淀为可追溯事件。"
         preserve-content-structure
       >
-        <template #actions><ElTag type="success" effect="plain" round>流程已规划</ElTag></template>
+        <template #actions
+          ><ElTag type="success" effect="plain" round>现场记录已启用</ElTag></template
+        >
         <div class="production-line" aria-label="生产执行流程">
           <div class="production-line__rail"></div>
           <article v-for="(stage, index) in productionStages" :key="stage.title">
@@ -60,8 +62,8 @@
         <div class="next-step">
           <span><ArtSvgIcon icon="ri:flag-line" /></span>
           <div
-            ><small>下一步建设重点</small><strong>现场报工与质量闭环</strong
-            ><p>在工单与工序任务基线上，继续接入产量、工时、检验与异常处置。</p></div
+            ><small>后续集成重点</small><strong>设备采集与库存联动</strong
+            ><p>接入机台脉冲、灯态和库存流水，形成自动采集与物料扣减。</p></div
           >
         </div>
       </ArtSectionCard>
@@ -128,7 +130,7 @@
     {
       label: '生产执行',
       value: '已启用',
-      description: '工单确认与工序排程',
+      description: '报工、审批与质量记录',
       icon: 'ri:play-circle-line',
       tone: 'success'
     }
@@ -140,7 +142,7 @@
     { title: '派工', description: '任务下达', icon: 'ri:user-shared-line' },
     { title: '报工', description: '产量工时', icon: 'ri:edit-box-line' },
     { title: '质检', description: '结果判定', icon: 'ri:shield-check-line' },
-    { title: '完工', description: '成品入库', icon: 'ri:checkbox-circle-line' }
+    { title: '完工', description: '任务完成', icon: 'ri:checkbox-circle-line' }
   ]
 
   const readinessItems = [
@@ -148,7 +150,8 @@
     { label: '统一工作空间', description: '共享登录、主题与导航' },
     { label: '访问权限', description: '菜单与角色授权已登记' },
     { label: '生产工单', description: '确认时固化 BOM 与工艺路线快照' },
-    { label: '工序任务', description: '支持工作中心排程与受控关闭' }
+    { label: '工序任务', description: '支持工作中心排程与受控关闭' },
+    { label: '现场执行', description: '报工、审批、安灯与质量记录已接入' }
   ]
 
   const roadmap = [

@@ -6,7 +6,7 @@
           <img :src="logo" alt="亿企工场" width="92" height="26" />
           <h1>生产作业指令单</h1>
           <div class="work-order-print-sheet__qr">
-            <QrcodeVue :value="order.workOrderNo" :size="38" level="M" />
+            <QrcodeVue :value="workOrderQrValue(order)" :size="38" level="M" />
             <span>工单二维码</span>
           </div>
         </header>
@@ -124,6 +124,7 @@
   import { formatNumberValue } from '@/utils/ui'
   import type { MesWorkOrder, MesWorkOrderRouteStepSnapshot } from '@mes/api'
   import { calculateOperationQuantity } from './work-order-plan'
+  import { workOrderQrValue } from './work-order-qr'
 
   const orders = shallowRef<MesWorkOrder[]>([])
   const printDate = computed(() => dayjs().format('YYYY-MM-DD'))

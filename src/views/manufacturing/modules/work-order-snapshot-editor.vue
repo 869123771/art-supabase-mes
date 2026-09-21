@@ -58,6 +58,7 @@
   const target = ref<'item' | 'header'>('item')
   const itemId = ref<string>()
   const references = shallowRef<MesWorkOrderSnapshotReferences>({
+    componentTypes: [],
     materials: [],
     units: [],
     warehouses: [],
@@ -68,7 +69,8 @@
   const option = (rows: Array<{ id: string; name: string; code?: string }>) =>
     rows.map((entry) => ({
       value: entry.id,
-      label: entry.code ? `${entry.code} · ${entry.name}` : entry.name
+      label: entry.code ? `${entry.code} · ${entry.name}` : entry.name,
+      disabled: 'disabled' in entry && entry.disabled === true
     }))
   const optionalSelect = (
     key: string,
@@ -141,6 +143,7 @@
       return [
         divider('组件信息'),
         optionalSelect('componentMaterialId', '组件物料', references.value.materials),
+        optionalSelect('componentTypeId', '组件类型', references.value.componentTypes),
         numberItem('sequenceNo', '组件序号', 1, 0),
         numberItem('basicQuantity', '基本数量（单台）', 0.000001),
         optionalSelect('unitId', '计量单位', references.value.units),
@@ -273,6 +276,7 @@
       componentMaterialId: '',
       componentMaterialCode: '',
       componentMaterialName: '',
+      componentTypeId: null,
       componentSpecification: '',
       sequenceNo: (row.value?.bomSnapshot?.[0]?.items?.length ?? 0) + 1,
       quantity: 1,

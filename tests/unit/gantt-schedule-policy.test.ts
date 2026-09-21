@@ -8,8 +8,11 @@ import type {
 import {
   buildCalendarDayMap,
   buildTimelineDates,
+  canAdjustShiftPlan,
   createAutomaticShiftPlan,
-  taskQuantitySummary
+  taskQuantitySummary,
+  taskTone,
+  taskToneLabel
 } from '../../src/views/gantt-scheduling/modules/gantt-schedule-policy'
 
 const centerId = '11111111-1111-4111-8111-111111111111'
@@ -90,6 +93,28 @@ test('keeps assigned, shift-scheduled, and unscheduled quantities independently 
     pendingProcessing: 3,
     unscheduled: 7
   })
+})
+
+test('only editable scheduling states allow shift-plan changes', () => {
+  const row = task([])
+  row.schedulingStatus = 'pending'
+  assert.equal(canAdjustShiftPlan(row), true)
+  row.schedulingStatus = 'no_schedule'
+  assert.equal(canAdjustShiftPlan(row), false)
+  assert.equal(taskToneLabel(taskTone(row, centerId, [])), '无需排产')
+  assert.deepEqual(taskQuantitySummary(row, centerId), {
+    assigned: 0,
+    completed: 0,
+    scheduled: 0,
+    pendingProcessing: 0,
+    unscheduled: 0
+  })
+  row.schedulingStatus = 'scheduled'
+  row.operationStatus = 'started'
+  assert.equal(canAdjustShiftPlan(row), false)
+  row.operationStatus = 'released'
+  row.scheduleLocked = true
+  assert.equal(canAdjustShiftPlan(row), false)
 })
 
 test('automatic scheduling fills only the unplanned part of the work-center assignment', () => {
