@@ -187,6 +187,7 @@
       </main>
 
       <AverageAllocationDialog ref="allocationDialogRef" @success="loadWorkspace" />
+      <ConfirmScheduleDialog ref="confirmScheduleDialogRef" @success="loadWorkspace" />
       <SchedulingAdvancedFilterDrawer ref="advancedFilterDrawerRef" @apply="applyAdvancedFilters" />
       <TaskAnnotationDialog ref="annotationDialogRef" @success="loadWorkspace" />
       <TaskDueDateDialog ref="dueDateDialogRef" @success="loadWorkspace" />
@@ -198,7 +199,7 @@
   import dayjs from 'dayjs'
   import { computed, onUnmounted, reactive, ref, watch } from 'vue'
   import { useDebounceFn } from '@vueuse/core'
-  import { ElInputNumber, ElMessage, ElOption, ElSelect } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { storeToRefs } from 'pinia'
   import ArtDictDisplay from '@/components/core/base/art-dict-display/index.vue'
@@ -244,6 +245,9 @@
   import AverageAllocationDialog, {
     type AverageAllocationDialogOpenData
   } from './modules/average-allocation-dialog.vue'
+  import ConfirmScheduleDialog, {
+    type ConfirmScheduleDialogOpenData
+  } from './modules/confirm-schedule-dialog.vue'
   import SchedulingAdvancedFilterDrawer, {
     type SchedulingAdvancedFilters
   } from './modules/scheduling-advanced-filter-drawer.vue'
@@ -286,6 +290,9 @@
   const taskTableRef = ref<ArtTableExpose>()
   const allocationDialogRef = ref<{
     handleOpen: (data: AverageAllocationDialogOpenData) => Promise<void>
+  }>()
+  const confirmScheduleDialogRef = ref<{
+    handleOpen: (data: ConfirmScheduleDialogOpenData) => Promise<void>
   }>()
   const advancedFilterDrawerRef = ref<{
     handleOpen: (filters: SchedulingAdvancedFilters) => Promise<void>
@@ -657,40 +664,18 @@
       prop: 'suggestedQuantity',
       label: '排产建议数量',
       width: 136,
-      fixed: 'right',
-      formatter: (row) => (
-        <ElInputNumber
-          v-model={draftFor(row).quantity}
-          min={0}
-          max={availableQuantity(row)}
-          precision={2}
-          controls={false}
-          aria-label={`${row.taskNo}排产建议数量`}
-          class="w-full!"
-        />
-      )
+      align: 'right',
+      formatter: (row) => quantityText(draftFor(row).quantity, row.operationUnit)
     },
     {
       prop: 'suggestedCenter',
       label: '排产建议工作中心',
       width: 216,
-      fixed: 'right',
-      formatter: (row) => (
-        <ElSelect
-          v-model={draftFor(row).workCenterId}
-          filterable
-          placeholder="选择工作中心"
-          aria-label={`${row.taskNo}排产建议工作中心`}
-        >
-          {eligibleCenters(row).map((center) => (
-            <ElOption
-              key={center.id}
-              value={center.id}
-              label={`${center.code} ${center.name}｜${centerCapacityHours(center).toFixed(1)} H`}
-            />
-          ))}
-        </ElSelect>
-      )
+      showOverflowTooltip: true,
+      formatter: (row) => {
+        const center = eligibleCenters(row).find((item) => item.id === draftFor(row).workCenterId)
+        return center ? `${center.code} ${center.name}` : '—'
+      }
     },
     {
       prop: 'operation',
@@ -700,13 +685,14 @@
       formatter: (row) => (
         <BusinessTableRowActions>
           <ArtButtonTable
-            type="edit"
-            label="确认"
+            type="sign"
+            icon="ri:calendar-schedule-line"
+            label="排产"
             permission="MesOperationTask:Schedule"
             disabled={
               row.scheduleLocked || !['pending', 'scheduled'].includes(row.schedulingStatus)
             }
-            onClick={() => void confirmSingleTask(row)}
+            onClick={() => openConfirmSchedule(row)}
           />
           <ArtButtonMore
             list={taskMore(row)}
@@ -730,12 +716,6 @@
   }
   function availableQuantity(row: MesOperationTask): number {
     return Math.max(Number(row.pendingScheduleQuantity || 0), 0)
-  }
-  function centerCapacityHours(center: MesProductionScopeCenter): number {
-    const minutes = Number(
-      selectedShift.value?.durationMinutes || center.dailyCapacityMinutes || 480
-    )
-    return (minutes / 60) * Math.max(Number(center.parallelCapacity || 1), 1)
   }
   function eligibleCenters(row: MesOperationTask): MesProductionScopeCenter[] {
     const scoped = scopedWorkCenters.value.length ? scopedWorkCenters.value : state.workCenters
@@ -872,8 +852,16 @@
     )
     return true
   }
-  async function confirmSingleTask(row: MesOperationTask): Promise<void> {
-    if (await confirmTask(row)) await loadWorkspace()
+  function openConfirmSchedule(row: MesOperationTask): void {
+    const draft = draftFor(row)
+    void confirmScheduleDialogRef.value?.handleOpen({
+      row,
+      workCenters: eligibleCenters(row),
+      shifts: state.shifts,
+      quantity: draft.quantity,
+      workCenterId: draft.workCenterId,
+      shiftScheduleId: filters.shiftScheduleId
+    })
   }
   async function confirmSelected(): Promise<void> {
     if (!selectedRows.value.length) return

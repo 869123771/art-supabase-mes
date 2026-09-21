@@ -41,6 +41,7 @@ export interface MesExecutionTask extends Pick<
   | 'completedQuantity'
   | 'reportedGoodQuantity'
   | 'reportedBadQuantity'
+  | 'requiredStartDate'
   | 'requiredCompletionDate'
   | 'departmentId'
   | 'workCenterId'
@@ -99,7 +100,7 @@ export interface MesExecutionTask extends Pick<
     }> | null
   } | null
   department?: { code: string; name: string } | null
-  workCenter?: { code: string; name: string } | null
+  workCenter?: { code: string; name: string; departmentId: string } | null
 }
 
 export interface MesExecutionPerson {
@@ -226,6 +227,12 @@ export interface MesReportInput {
   remark: string
   media: string[]
   defects: Array<{ reasonId: string; quantity: number; remark: string }>
+}
+
+export interface MesExecutionCalendarShift {
+  name: string
+  startTime: string
+  endTime: string
 }
 
 export interface MesExecutionEventInput {

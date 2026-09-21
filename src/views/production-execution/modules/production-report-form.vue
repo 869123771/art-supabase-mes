@@ -88,9 +88,45 @@
               :precision="0"
               controls-position="right"
           /></ElFormItem>
-          <ElFormItem label="班次" prop="shiftName" required
-            ><ElInput v-model="form.shiftName" maxlength="40" placeholder="例如：白班"
-          /></ElFormItem>
+          <ElFormItem label="班次" prop="shiftName" required>
+            <div class="report-form__shift-field">
+              <span class="report-form__field-hint">
+                {{
+                  editingReport
+                    ? '原报工班次（历史记录）'
+                    : `工序要求开工日期 ${task?.requiredStartDate || '未设置'} 的工厂日历班次`
+                }}
+              </span>
+              <span v-if="editingReport" class="report-form__shift-history">
+                {{ form.shiftName || '未记录班次' }}
+              </span>
+              <ElSkeleton v-else-if="shiftLoading" :rows="1" animated />
+              <div v-else-if="shiftError" class="report-form__shift-feedback" role="alert">
+                <span>{{ shiftError }}</span>
+                <ElButton link type="primary" @click="retryShifts">重试</ElButton>
+              </div>
+              <div
+                v-else-if="!calendarShifts.length"
+                class="report-form__shift-feedback"
+                role="status"
+              >
+                该日期未配置生产班次，请先在工厂日历配置后重试。
+                <ElButton link type="primary" @click="retryShifts">重新读取</ElButton>
+              </div>
+              <ElRadioGroup v-else v-model="form.shiftName" class="report-form__shift-options">
+                <ElRadioButton
+                  v-for="shift in calendarShifts"
+                  :key="`${shift.name}-${shift.startTime}-${shift.endTime}`"
+                  :value="shift.name"
+                >
+                  <span class="report-form__shift-option">
+                    <ArtSvgIcon v-if="form.shiftName === shift.name" icon="ri:check-line" />
+                    {{ shift.name }} {{ shift.startTime }}—{{ shift.endTime }}
+                  </span>
+                </ElRadioButton>
+              </ElRadioGroup>
+            </div>
+          </ElFormItem>
           <ElFormItem label="加工不良数" prop="processBadQuantity" required
             ><ElInputNumber
               v-model="form.processBadQuantity"
@@ -213,11 +249,13 @@
   import {
     fetchDefectReasons,
     fetchExecutionWorkCenterEquipment,
+    fetchExecutionCalendarShifts,
     reviewProductionReport,
     submitProductionReport,
     type MesDefectReason,
     type MesExecutionPerson,
     type MesExecutionTask,
+    type MesExecutionCalendarShift,
     type MesProductionReport,
     type MesReportInput,
     type MesWorkCenterEquipmentOption
@@ -235,6 +273,10 @@
   const equipmentOptions = ref<MesWorkCenterEquipmentOption[]>([])
   const equipmentLoading = ref(false)
   const equipmentLoaded = ref(false)
+  const calendarShifts = ref<MesExecutionCalendarShift[]>([])
+  const shiftLoading = ref(false)
+  const shiftError = ref('')
+  let shiftRequest = 0
   const form = reactive<MesReportInput>({
     equipmentId: null,
     goodQuantity: 0,
@@ -275,7 +317,7 @@
         trigger: 'change'
       }
     ],
-    shiftName: [{ required: true, whitespace: true, message: '请填写班次', trigger: 'blur' }],
+    shiftName: [{ required: true, whitespace: true, message: '请选择班次', trigger: 'change' }],
     processBadQuantity: [
       { type: 'number', min: 0, message: '加工不良数不能小于零', trigger: 'change' }
     ],
@@ -333,6 +375,17 @@
       ElMessage.warning('机台选项尚未加载，请稍后重试')
       return false
     }
+    if (!editingReport.value && shiftLoading.value) {
+      ElMessage.warning('班次加载中，请稍后重试')
+      return false
+    }
+    if (
+      !editingReport.value &&
+      !calendarShifts.value.some((shift) => shift.name === form.shiftName)
+    ) {
+      ElMessage.warning('请先读取工厂日历并选择班次')
+      return false
+    }
     try {
       await formRef.value?.validate()
     } catch {
@@ -353,17 +406,54 @@
       return false
     }
   }
+  async function loadCalendarShifts(nextTask: MesExecutionTask): Promise<void> {
+    const request = ++shiftRequest
+    calendarShifts.value = []
+    shiftError.value = ''
+    if (!nextTask.requiredStartDate || !nextTask.workCenter?.departmentId) {
+      form.shiftName = ''
+      shiftError.value = '工序缺少要求开工日期或工作中心所属生产组织，无法读取班次。'
+      return
+    }
+    shiftLoading.value = true
+    try {
+      const shifts = await fetchExecutionCalendarShifts(
+        nextTask.tenantId,
+        nextTask.workCenter.departmentId,
+        nextTask.requiredStartDate
+      )
+      if (request !== shiftRequest) return
+      calendarShifts.value = shifts
+      const scheduledShift = nextTask.allocations?.find((item) =>
+        shifts.some((shift) => shift.name === item.shiftNameSnapshot)
+      )?.shiftNameSnapshot
+      form.shiftName = scheduledShift || shifts[0]?.name || ''
+    } catch {
+      if (request !== shiftRequest) return
+      form.shiftName = ''
+      shiftError.value = '工厂日历班次加载失败，请重试。'
+    } finally {
+      if (request === shiftRequest) shiftLoading.value = false
+    }
+  }
+  function retryShifts(): void {
+    if (task.value && !editingReport.value) void loadCalendarShifts(task.value)
+  }
   async function open(
     nextTask: MesExecutionTask,
     personnel: MesExecutionPerson[],
     report?: MesProductionReport
   ) {
+    shiftRequest += 1
     task.value = nextTask
     editingReport.value = report || null
     people.value = personnel
     equipmentLoaded.value = false
     equipmentLoading.value = true
     equipmentOptions.value = []
+    calendarShifts.value = []
+    shiftError.value = ''
+    shiftLoading.value = false
     Object.assign(form, {
       equipmentId: report ? report.equipmentId : nextTask.equipmentId,
       goodQuantity: report?.goodQuantity || 0,
@@ -385,7 +475,13 @@
         })) || []
     })
     void nextTick(() => formRef.value?.clearValidate())
+    void dialogRef.value?.handleOpen(undefined, {
+      title: report?.status === 'rejected' ? '修改并重新提交' : report ? '修改报工' : '工序报工',
+      confirmText: report?.status === 'rejected' ? '重新提交' : report ? '保存修改' : '提交报工',
+      onConfirm: confirm
+    })
     await Promise.all([
+      ...(report ? [] : [loadCalendarShifts(nextTask)]),
       fetchDefectReasons(nextTask.tenantId)
         .then((items) => (reasons.value = items))
         .catch(() => {
@@ -429,10 +525,6 @@
           equipmentLoading.value = false
         })
     ])
-    dialogRef.value?.handleOpen(undefined, {
-      title: report?.status === 'rejected' ? '修改并重新提交' : report ? '修改报工' : '工序报工',
-      onConfirm: confirm
-    })
   }
   defineExpose({ open })
 </script>
@@ -495,6 +587,40 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--el-text-color-secondary);
+  }
+
+  .report-form__shift-field {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .report-form__shift-field .report-form__field-hint {
+    margin: 0;
+  }
+
+  .report-form__shift-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .report-form__shift-options :deep(.el-radio-button__inner) {
+    border-radius: var(--art-control-radius);
+  }
+
+  .report-form__shift-option {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .report-form__shift-history,
+  .report-form__shift-feedback {
+    color: var(--el-text-color-regular);
   }
 
   .report-form__defect {

@@ -10,6 +10,7 @@ import type {
   MesExecutionListQuery,
   MesExecutionPerson,
   MesExecutionTask,
+  MesExecutionCalendarShift,
   MesProductionReport,
   MesReportInput
 } from './execution.types'
@@ -32,7 +33,38 @@ const writeOptions = {
 }
 
 const taskSelect =
-  'id,tenant_id,task_no,work_order_id,route_step_snapshot_id,sequence_no,sequence_type,operation_code,operation_name,process_content,planned_quantity,completed_quantity,reported_good_quantity,reported_bad_quantity,required_completion_date,department_id,work_center_id,equipment_id,equipment_locked,equipment_code_snapshot,equipment_name_snapshot,operation_status,scheduling_status,started_at,workOrder:mes_work_order!mes_operation_task_order_fk(work_order_no,work_order_type_name_snapshot,project_name_snapshot,material_code_snapshot,material_name_snapshot,specification_snapshot,drawing_no_snapshot,order_quantity,unit_snapshot,order_status,planned_end_date,route_snapshot,bom_snapshot),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name),allocations:mes_operation_task_allocation(id,work_center_id,shift_name_snapshot,quantity,planned_start_date,planned_end_date,status)'
+  'id,tenant_id,task_no,work_order_id,route_step_snapshot_id,sequence_no,sequence_type,operation_code,operation_name,process_content,planned_quantity,completed_quantity,reported_good_quantity,reported_bad_quantity,required_start_date,required_completion_date,department_id,work_center_id,equipment_id,equipment_locked,equipment_code_snapshot,equipment_name_snapshot,operation_status,scheduling_status,started_at,workOrder:mes_work_order!mes_operation_task_order_fk(work_order_no,work_order_type_name_snapshot,project_name_snapshot,material_code_snapshot,material_name_snapshot,specification_snapshot,drawing_no_snapshot,order_quantity,unit_snapshot,order_status,planned_end_date,route_snapshot,bom_snapshot),department:mdm_production_department!mes_operation_task_department_fk(code,name),workCenter:mdm_work_center!mes_operation_task_center_fk(code,name,department_id),allocations:mes_operation_task_allocation(id,work_center_id,shift_name_snapshot,quantity,planned_start_date,planned_end_date,status)'
+
+export async function fetchExecutionCalendarShifts(
+  tenantId: string,
+  departmentId: string,
+  workDate: string
+): Promise<MesExecutionCalendarShift[]> {
+  const { data } = await responseHandle<Array<{ pattern: { shifts: unknown } | null }>>(
+    () =>
+      supabase
+        .from('mdm_production_calendar')
+        .select(
+          'pattern:mdm_production_shift_pattern!mdm_production_calendar_tenant_id_department_id_pattern_id_fkey(shifts)'
+        )
+        .eq('tenant_id', tenantId)
+        .eq('department_id', departmentId)
+        .eq('work_date', workDate)
+        .limit(1),
+    readOptions
+  )
+  const raw = data?.[0]?.pattern?.shifts
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (item): item is MesExecutionCalendarShift =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof item.name === 'string' &&
+      item.name.trim().length > 0 &&
+      typeof item.startTime === 'string' &&
+      typeof item.endTime === 'string'
+  )
+}
 
 async function findTaskIdsForKeyword(keyword: string, tenantId?: string | null) {
   const text = keyword.trim()
