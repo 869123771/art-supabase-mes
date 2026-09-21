@@ -1,4 +1,5 @@
 import { useSupabase } from '@/hooks'
+import { normalizeNullableText } from '@/utils/form/normalize'
 
 export type MesPmisEquipmentKind = 'inspection' | 'patrol' | 'maintenance'
 
@@ -47,7 +48,7 @@ export async function fetchMesPmisEquipmentTasks(query: MesPmisEquipmentTaskQuer
         p_date_from: query.dateRange?.[0] || null,
         p_date_to: query.dateRange?.[1] || null,
         p_status: query.status || null,
-        p_keyword: query.keyword?.trim() || null,
+        p_keyword: normalizeNullableText(query.keyword),
         p_limit: query.size,
         p_offset: (query.current - 1) * query.size
       }),
