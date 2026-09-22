@@ -20,7 +20,8 @@
               ><dt>物料号</dt><dd>{{ order.materialCodeSnapshot }}</dd></div
             >
             <div
-              ><dt>物料描述</dt><dd>{{ order.materialNameSnapshot }}</dd></div
+              ><dt>物料描述</dt
+              ><dd>{{ order.materialDescription || order.materialNameSnapshot }}</dd></div
             >
             <div
               ><dt>数量</dt

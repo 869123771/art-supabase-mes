@@ -670,7 +670,7 @@
             exportColumns: [
               { key: 'workOrderNo', title: '工单编号' },
               { key: 'materialCodeSnapshot', title: '物料编码' },
-              { key: 'materialNameSnapshot', title: '产品名称' },
+              { key: 'materialDescription', title: '物料描述' },
               { key: 'orderQuantity', title: '工单数量' },
               { key: 'plannedEndDate', title: '计划结束' },
               { key: 'status', title: '状态' }
@@ -876,7 +876,7 @@
       )
     },
     { prop: 'materialCodeSnapshot', label: '物料编码', minWidth: 140, showOverflowTooltip: true },
-    { prop: 'materialNameSnapshot', label: '物料描述', minWidth: 180, showOverflowTooltip: true },
+    { prop: 'materialDescription', label: '物料描述', minWidth: 220, showOverflowTooltip: true },
     { prop: 'specificationSnapshot', label: '规格型号', minWidth: 140, showOverflowTooltip: true },
     { prop: 'drawingNoSnapshot', label: '图号', minWidth: 130, showOverflowTooltip: true },
     {
@@ -919,7 +919,7 @@
       label: '工单数量',
       width: 112,
       align: 'right',
-      formatter: (row) => `${row.orderQuantity} ${row.unitSnapshot || ''}`
+      formatter: (row) => `${Number(row.orderQuantity).toFixed(2)} ${row.unitSnapshot || ''}`
     },
     { prop: 'plannedEndDate', label: '计划结束', width: 116 },
     { prop: 'printCount', label: '打印次数', width: 96, align: 'right' },

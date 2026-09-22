@@ -55,6 +55,8 @@
             :selected-data="selectedMaterial ? [selectedMaterial] : []"
             :api-fn="fetchMaterialOptions"
             :categories="materialCategories"
+            :label-key="materialDescriptionLabel"
+            reset-draft-on-open
             subtitle="按物料分类筛选；选择后自动带入生产单位、计划员与生产提前期"
             placeholder="请选择物料描述"
             empty-description="请先维护物料编码后再创建生产工单。"
@@ -97,6 +99,7 @@
         v-model:rows="detailRows"
         :readonly="readonly"
         :action-permission="currentId ? 'MesWorkOrder:Edit' : 'MesWorkOrder:Add'"
+        :default-width-mm="selectedMaterial?.widthMm"
         class="mt-4"
       />
     </div>
@@ -138,6 +141,7 @@
     fetchMesBomComponentOptions,
     fetchMesMaterialCategories,
     fetchMesMaterialOptions,
+    fetchMesMaterialDetailsById,
     fetchMesReferences,
     saveWorkOrder,
     type MesMaterialCategory,
@@ -227,6 +231,10 @@
     salesOrderQuantity: null
   })
   const selectedMaterial = shallowRef<MesMaterialOption>()
+  const materialDescriptionLabel = (row: DataSelectRecord): string => {
+    const material = row as MesMaterialOption
+    return material.description?.trim() || material.materialName || '未维护物料描述'
+  }
   const materialCategories = ref<MesMaterialCategory[]>([])
   const currentId = ref('')
   const heading = computed(() =>
@@ -356,7 +364,7 @@
       key: 'orderQuantity',
       label: '工单数量',
       type: 'number',
-      props: { disabled: locked.value, min: 0.000001, precision: 6, class: '!w-full' }
+      props: { disabled: locked.value, min: 0.01, precision: 2, class: '!w-full' }
     },
     {
       key: 'productionDays',
@@ -503,7 +511,11 @@
   function handlePlannedEndChange(value: unknown): void {
     if (typeof value === 'string') applyPlanFromEnd(value)
   }
-  function applyMaterial(material?: MesMaterialOption, recalculatePlan = true): void {
+  function applyMaterial(
+    material?: MesMaterialOption,
+    recalculatePlan = true,
+    overwriteDimensions = true
+  ): void {
     const productionFixedLeadDays = material?.productionFixedLeadDays ?? 0
     const productionPreprocessDays = material?.productionPreprocessDays ?? 0
     const selfMadeProductionDays = material?.selfMadeProductionDays ?? 0
@@ -532,6 +544,7 @@
       productionPostprocessDays,
       productionDays
     })
+    applyMaterialDimensions(material, overwriteDimensions)
     if (!material || !recalculatePlan) return
     if (model.plannedStartDate) applyPlanFromStart(model.plannedStartDate)
     else if (model.plannedEndDate) applyPlanFromEnd(model.plannedEndDate)
@@ -540,6 +553,17 @@
   function handleMaterialChange(_value: unknown, rows: DataSelectRecord[]): void {
     applyMaterial(rows[0] as MesMaterialOption | undefined)
     void populateExtensionFromBom()
+  }
+  function applyMaterialDimensions(material?: MesMaterialOption, overwrite = true): void {
+    for (const [key, value] of [
+      ['width', material?.widthMm],
+      ['thickness', material?.thicknessMm]
+    ] as const) {
+      if (!activeExtensionFields.value.some((field) => field.key === key)) continue
+      if (overwrite || extensionValues[key] == null || extensionValues[key] === '') {
+        extensionValues[key] = value ?? null
+      }
+    }
   }
   async function populateExtensionFromBom(): Promise<void> {
     const requestId = ++bomOptionsRequestId
@@ -564,6 +588,7 @@
   }
   function handleWorkOrderTypeChange(): void {
     for (const key of Object.keys(extensionValues)) delete extensionValues[key]
+    applyMaterialDimensions(selectedMaterial.value)
     void populateExtensionFromBom()
   }
   const workOrderInputKeys = [
@@ -595,6 +620,7 @@
     const payload = pick(model, workOrderInputKeys)
     return {
       ...payload,
+      orderQuantity: Number(Number(payload.orderQuantity).toFixed(2)),
       extensionValues: cloneDeep(extensionValues),
       details: detailRows.value.map((row, index) => ({
         area: row.area.trim(),
@@ -715,7 +741,7 @@
             salesOrderQuantity: null
           }
     )
-    if (selectedMaterial.value) applyMaterial(selectedMaterial.value, false)
+    if (selectedMaterial.value) applyMaterial(selectedMaterial.value, false, false)
     await Promise.all(
       [
         'mesWorkOrderSource',
@@ -735,6 +761,13 @@
       onOpen: async (_data, api) => {
         try {
           await loadReferences()
+          if (selectedMaterial.value) {
+            const details = await fetchMesMaterialDetailsById(model.tenantId, model.materialId)
+            if (details && selectedMaterial.value?.id === model.materialId) {
+              selectedMaterial.value = { ...selectedMaterial.value, ...details }
+              applyMaterialDimensions(selectedMaterial.value, false)
+            }
+          }
           formRef.value?.clearValidate()
         } finally {
           api.setLoading(false)

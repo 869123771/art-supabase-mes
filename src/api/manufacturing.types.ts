@@ -82,6 +82,9 @@ export interface MesMaterialOption extends MesReferenceOption {
   categoryId: string
   materialCode: string
   materialName: string
+  description?: string | null
+  widthMm?: number | null
+  thicknessMm?: number | null
   specificationModel?: string
   drawingNo?: string
   materialComposition?: string
@@ -295,6 +298,8 @@ export interface MesWorkOrder {
   printCount: number
   materialCodeSnapshot: string
   materialNameSnapshot: string
+  /** Current material description for display; historical name snapshot remains unchanged. */
+  materialDescription?: string
   specificationSnapshot: string
   drawingNoSnapshot: string
   unitSnapshot: string

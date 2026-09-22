@@ -6,7 +6,7 @@
         <div>
           <strong>生产工单</strong>
           <b>{{ order.workOrderNo }}</b>
-          <span>{{ order.materialNameSnapshot }}</span>
+          <span>{{ order.materialDescription || order.materialNameSnapshot }}</span>
           <small
             >{{ order.materialCodeSnapshot }} · {{ order.orderQuantity }}
             {{ order.unitSnapshot }}</small

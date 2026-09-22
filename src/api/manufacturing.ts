@@ -99,9 +99,24 @@ export async function fetchWorkOrders(params: MesListQuery, options?: { signal?:
     () => (options?.signal ? query.abortSignal(options.signal) : query),
     readOptions
   )
+  const rows = data ?? []
+  const detailsByTenant = await Promise.all(
+    [...new Set(rows.map((row) => row.tenantId))].map(async (tenantId) => ({
+      tenantId,
+      details: await fetchMesMaterialDetails(tenantId, [
+        ...new Set(rows.filter((row) => row.tenantId === tenantId).map((row) => row.materialId))
+      ])
+    }))
+  )
+  const materialDetails = new Map(
+    detailsByTenant.map(({ tenantId, details }) => [tenantId, details])
+  )
   return {
-    data: (data ?? []).map((row) => ({
+    data: rows.map((row) => ({
       ...row,
+      materialDescription:
+        materialDetails.get(row.tenantId)?.get(row.materialId)?.description?.trim() ||
+        row.materialNameSnapshot,
       details: [...(row.details ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
     })),
     total: total ?? 0
@@ -803,7 +818,88 @@ export async function fetchMesMaterialOptions(
       }),
     { ...readOptions, showErrorMessage: false }
   )
-  return { data: data?.data ?? [], total: data?.total ?? 0 }
+  const options = data?.data ?? []
+  const details = await fetchMesMaterialDetails(
+    params.tenantId,
+    options.map((item) => item.id)
+  )
+  return {
+    data: options.map((item) => ({ ...item, ...details.get(item.id) })),
+    total: data?.total ?? 0
+  }
+}
+
+interface MesMaterialDetails {
+  description: string | null
+  widthMm: number | null
+  thicknessMm: number | null
+}
+
+async function fetchMesMaterialDetails(tenantId: string, ids: string[]) {
+  const details = new Map<string, MesMaterialDetails>()
+  if (!ids.length) return details
+  const { data } = await responseHandle<
+    Array<{
+      id: string
+      description: string | null
+      width: number | null
+      thickness: number | null
+      attributeGroupId: string | null
+      attributeValues: Record<string, string | number | null> | null
+    }>
+  >(
+    () =>
+      supabase
+        .from('mdm_material')
+        .select('id,description,width,thickness,attribute_group_id,attribute_values')
+        .eq('tenant_id', tenantId)
+        .in('id', ids),
+    readOptions
+  )
+  const groupIds = [...new Set((data ?? []).map((item) => item.attributeGroupId).filter(Boolean))]
+  const { data: attributes } = groupIds.length
+    ? await responseHandle<Array<{ groupId: string; attributeKey: string; attributeName: string }>>(
+        () =>
+          supabase
+            .from('mdm_material_attribute')
+            .select('group_id,attribute_key,attribute_name')
+            .eq('tenant_id', tenantId)
+            .in('group_id', groupIds)
+            .in('attribute_name', ['宽度', '厚度']),
+        readOptions
+      )
+    : { data: [] }
+  const dimensionKeys = new Map<string, { width?: string; thickness?: string }>()
+  for (const attribute of attributes ?? []) {
+    const keys = dimensionKeys.get(attribute.groupId) ?? {}
+    if (attribute.attributeName === '宽度') keys.width = attribute.attributeKey
+    if (attribute.attributeName === '厚度') keys.thickness = attribute.attributeKey
+    dimensionKeys.set(attribute.groupId, keys)
+  }
+  const dimension = (value: string | number | null | undefined, fallback: number | null) => {
+    if (value == null || value === '') return fallback == null ? null : Number(fallback)
+    const number = Number(value)
+    return Number.isFinite(number) ? number : fallback == null ? null : Number(fallback)
+  }
+  for (const item of data ?? []) {
+    const keys = item.attributeGroupId ? dimensionKeys.get(item.attributeGroupId) : undefined
+    details.set(item.id, {
+      description: item.description,
+      widthMm: dimension(keys?.width ? item.attributeValues?.[keys.width] : null, item.width),
+      thicknessMm: dimension(
+        keys?.thickness ? item.attributeValues?.[keys.thickness] : null,
+        item.thickness
+      )
+    })
+  }
+  return details
+}
+
+export async function fetchMesMaterialDetailsById(
+  tenantId: string,
+  materialId: string
+): Promise<MesMaterialDetails | undefined> {
+  return (await fetchMesMaterialDetails(tenantId, [materialId])).get(materialId)
 }
 
 export async function fetchMesMaterialCategories(tenantId: string): Promise<MesMaterialCategory[]> {

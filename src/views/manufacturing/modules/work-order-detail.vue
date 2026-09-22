@@ -75,7 +75,7 @@
         title: '产品与计划',
         items: [
           { key: 'materialCodeSnapshot', label: '物料编码', field: 'materialCodeSnapshot' },
-          { key: 'materialNameSnapshot', label: '产品名称', field: 'materialNameSnapshot' },
+          { key: 'materialDescription', label: '物料描述', field: 'materialDescription' },
           { key: 'specificationSnapshot', label: '规格型号', field: 'specificationSnapshot' },
           { key: 'drawingNoSnapshot', label: '图号', field: 'drawingNoSnapshot' },
           { key: 'unitSnapshot', label: '生产单位', field: 'unitSnapshot' },
@@ -92,7 +92,12 @@
             field: 'isInitialDocument',
             formatter: (value) => (value ? '是' : '否')
           },
-          { key: 'orderQuantity', label: '工单数量', field: 'orderQuantity', format: 'number' },
+          {
+            key: 'orderQuantity',
+            label: '工单数量',
+            field: 'orderQuantity',
+            formatter: (value) => Number(value).toFixed(2)
+          },
           {
             key: 'specificationQuantity',
             label: '规格数量',

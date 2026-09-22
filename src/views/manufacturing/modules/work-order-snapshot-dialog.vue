@@ -251,8 +251,36 @@
         references.value.warehouses.find((entry) => entry.id === row.defaultIssueWarehouseId)
           ?.name || '—'
     },
-    { prop: 'issueMethod', label: '领送料方式', width: 120 },
-    { prop: 'backflushMethod', label: '倒冲方式', width: 120 },
+    {
+      prop: 'issueMethod',
+      label: '领送料方式',
+      width: 120,
+      formatter: (row) =>
+        row.issueMethod ? (
+          <ArtDictDisplay
+            dictCode="mdmMaterialIssueMethod"
+            value={row.issueMethod}
+            display="text"
+          />
+        ) : (
+          '—'
+        )
+    },
+    {
+      prop: 'backflushMethod',
+      label: '倒冲方式',
+      width: 120,
+      formatter: (row) =>
+        row.backflushMethod ? (
+          <ArtDictDisplay
+            dictCode="mdmMaterialBackflushMethod"
+            value={row.backflushMethod}
+            display="text"
+          />
+        ) : (
+          '—'
+        )
+    },
     { prop: 'overIssueControlMethod', label: '超发控制方式', width: 140 },
     { prop: 'projectText', label: '项目文本', minWidth: 140, showOverflowTooltip: true },
     { prop: 'operationName', label: '工序名称', minWidth: 130 },
@@ -602,7 +630,7 @@
             'mdmReworkMode',
             'mdmProcessSequenceControlMode'
           ]
-        : ['mdmProcessRouteSequenceType']
+        : ['mdmProcessRouteSequenceType', 'mdmMaterialIssueMethod', 'mdmMaterialBackflushMethod']
     await Promise.all(dictionaryCodes.map((code) => userStore.ensureDictLoaded(code)))
     await dialogRef.value?.handleOpen(data, {
       title: data.mode === 'bom' ? '工单 BOM' : '工单工艺路线',

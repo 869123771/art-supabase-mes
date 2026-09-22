@@ -3,6 +3,7 @@ import { fetchAllRangePages } from '@/utils/supabase/pagination'
 
 export type BoardKind = 'PU_BOARD' | 'ROCK_BOARD'
 export type RemainderPolicy = 'separate' | 'merge' | 'manual'
+export type PackingStatus = 'unpacked' | 'partial' | 'packed'
 
 export interface PackRule {
   id: string
@@ -101,34 +102,70 @@ export async function fetchPackingOrders(tenantId?: string | null): Promise<
     id: string
     tenantId: string
     workOrderNo: string
+    materialCodeSnapshot: string
     materialNameSnapshot: string
+    specificationSnapshot: string
+    projectNameSnapshot: string
+    constructionNo: string
+    plannedStartDate: string | null
     orderQuantity: number
     status: string
+    packingStatus: PackingStatus
+    boardPieces: number
+    packedPieces: number
     updateTime: string
   }>
 > {
+  const { data: types } = await responseHandle<Array<{ id: string }>>(
+    () => supabase.from('mdm_document_type').select('id').eq('document_type_code', 'PP20'),
+    readOptions
+  )
+  const typeIds = (types ?? []).map((type) => type.id)
+  if (!typeIds.length) return []
   type OrderRow = {
     id: string
     tenantId: string
     workOrderNo: string
+    materialCodeSnapshot: string
     materialNameSnapshot: string
+    specificationSnapshot: string
+    projectNameSnapshot: string
+    constructionNo: string
+    plannedStartDate: string | null
     orderQuantity: number
     status: string
     updateTime: string
+    details: Array<{ pieces: number; packedPieces: number }>
   }
   const result = await fetchAllRangePages<OrderRow>(({ from, to }) => {
     let query = supabase
       .from('mes_work_order')
-      .select('id,tenant_id,work_order_no,material_name_snapshot,order_quantity,status,update_time')
+      .select(
+        'id,tenant_id,work_order_no,material_code_snapshot,material_name_snapshot,specification_snapshot,project_name_snapshot,construction_no,planned_start_date,order_quantity,status,update_time,details:mes_work_order_detail(pieces,packed_pieces)'
+      )
       .is('deleted_at', null)
       .neq('status', 'closed')
-      .order('update_time', { ascending: false })
+      .in('work_order_type_id', typeIds)
+      .order('planned_start_date', { ascending: true })
       .range(from, to)
     if (tenantId) query = query.eq('tenant_id', tenantId)
     return responseHandle<OrderRow[]>(() => query, readOptions)
   })
   if (result.error) throw result.error
-  return result.data ?? []
+  return (result.data ?? []).map(({ details, ...order }) => {
+    const boardPieces = details.reduce((total, detail) => total + Number(detail.pieces || 0), 0)
+    const packedPieces = details.reduce(
+      (total, detail) => total + Number(detail.packedPieces || 0),
+      0
+    )
+    const packingStatus: PackingStatus =
+      boardPieces > 0 && packedPieces >= boardPieces
+        ? 'packed'
+        : packedPieces > 0
+          ? 'partial'
+          : 'unpacked'
+    return { ...order, boardPieces, packedPieces, packingStatus }
+  })
 }
 
 export async function fetchWorkOrderBoards(workOrderId: string): Promise<WorkOrderBoard[]> {

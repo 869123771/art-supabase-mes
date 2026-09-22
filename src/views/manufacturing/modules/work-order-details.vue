@@ -1,23 +1,33 @@
 <template>
   <ArtSectionCard
+    class="work-order-details"
     title="生产单明细"
-    :subtitle="`${rows.length} 行 · 延米与面积按毫米尺寸自动计算，面积可人工覆盖`"
+    :subtitle="`${rows.length} 行 · 延米、面积按毫米尺寸自动计算，面积可人工覆盖`"
     preserve-content-structure
   >
     <template v-if="!readonly" #actions>
-      <div class="flex flex-wrap gap-2">
-        <ElButton v-auth="actionPermission" type="primary" plain @click="addRow">新增</ElButton>
+      <div class="work-order-details__actions">
+        <ElButton v-auth="actionPermission" type="primary" plain @click="addRow">
+          <template #icon><ArtSvgIcon icon="ri:add-line" /></template>
+          新增明细
+        </ElButton>
         <span v-auth="actionPermission">
           <ArtExcelImport
             icon="ri:file-upload-line"
-            :button-props="{ plain: true }"
+            :button-props="{ plain: true, type: 'primary' }"
             @import-success="importRows"
             @import-error="handleImportError"
-            >导入</ArtExcelImport
+            >导入明细</ArtExcelImport
           >
         </span>
-        <ElButton v-auth="'MesWorkOrder:Export'" @click="exportRows(false)">导出</ElButton>
-        <ElButton @click="exportRows(true)">下载模板</ElButton>
+        <ElButton v-auth="'MesWorkOrder:Export'" @click="exportRows(false)">
+          <template #icon><ArtSvgIcon icon="ri:download-2-line" /></template>
+          导出
+        </ElButton>
+        <ElButton @click="exportRows(true)">
+          <template #icon><ArtSvgIcon icon="ri:file-download-line" /></template>
+          下载模板
+        </ElButton>
       </div>
     </template>
     <ArtTable
@@ -28,12 +38,11 @@
       :pagination="false"
       table-layout="fixed"
       scrollbar-always-on
-      height="auto"
-      max-height="360"
+      :height="rows.length > 6 ? 360 : 'auto'"
       empty-text="暂无生产单明细"
-      empty-description="可新增一行或通过模板批量导入。"
+      empty-description="点击新增明细，或下载模板后批量导入。"
     />
-    <div v-if="rows.length" class="mt-3 flex justify-end gap-5 text-sm text-gray-500">
+    <div v-if="rows.length" class="work-order-details__summary">
       <span
         >合计块数 <strong>{{ totalPieces }}</strong></span
       >
@@ -68,6 +77,7 @@
   const props = defineProps<{
     readonly: boolean
     actionPermission: 'MesWorkOrder:Add' | 'MesWorkOrder:Edit'
+    defaultWidthMm?: number | null
   }>()
   const rows = defineModel<WorkOrderDetailDraft[]>('rows', { required: true })
   const totalPieces = computed(() =>
@@ -87,7 +97,7 @@
     number: '',
     lengthMm: 0,
     pieces: 1,
-    widthMm: 0,
+    widthMm: props.defaultWidthMm ?? 0,
     areaSqm: 0,
     areaOverridden: false,
     remark: '',
@@ -97,6 +107,17 @@
   const recalculate = (row: WorkOrderDetailDraft) => {
     if (!row.areaOverridden) row.areaSqm = calculateWorkOrderArea(row)
   }
+  watch(
+    () => props.defaultWidthMm,
+    (width, previousWidth) => {
+      if (!width || props.readonly) return
+      for (const row of rows.value) {
+        if (row.widthMm !== 0 && row.widthMm !== previousWidth) continue
+        row.widthMm = width
+        recalculate(row)
+      }
+    }
+  )
   const addRow = () => rows.value.push(newRow())
   const removeRow = (row: WorkOrderDetailDraft) => rows.value.splice(rows.value.indexOf(row), 1)
   const columns = computed<ColumnOption<WorkOrderDetailDraft>[]>(() => [
@@ -104,7 +125,7 @@
     {
       prop: 'area',
       label: '区域',
-      minWidth: 120,
+      width: 100,
       sortable: true,
       formatter: (row) =>
         props.readonly ? (
@@ -116,7 +137,7 @@
     {
       prop: 'number',
       label: '编号',
-      minWidth: 120,
+      width: 100,
       sortable: true,
       formatter: (row) =>
         props.readonly ? (
@@ -148,7 +169,7 @@
     {
       prop: 'pieces',
       label: '块数',
-      width: 115,
+      width: 90,
       formatter: (row) =>
         props.readonly ? (
           row.pieces
@@ -181,7 +202,7 @@
     {
       prop: 'widthMm',
       label: '宽度 mm',
-      width: 145,
+      width: 120,
       sortable: true,
       formatter: (row) =>
         props.readonly ? (
@@ -371,6 +392,57 @@
 </script>
 
 <style scoped>
+  .work-order-details {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .work-order-details :deep(.art-section-card__header) {
+    align-items: center;
+    padding: 16px 18px;
+    margin: 0;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+  }
+
+  .work-order-details__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .work-order-details__actions :deep(.el-button) {
+    margin: 0;
+  }
+
+  .work-order-details__summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    justify-content: flex-end;
+    padding: 12px 18px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    border-top: 1px solid var(--el-border-color-lighter);
+  }
+
+  .work-order-details__summary strong {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--el-text-color-primary);
+  }
+
+  @media (width <= 760px) {
+    .work-order-details :deep(.art-section-card__header) {
+      align-items: stretch;
+      padding: 14px;
+    }
+
+    .work-order-details__actions {
+      justify-content: flex-start;
+    }
+  }
+
   :deep(.work-order-detail--packed) {
     background: var(--el-color-warning-light-9);
   }
