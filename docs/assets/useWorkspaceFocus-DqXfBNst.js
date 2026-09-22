@@ -1,1 +1,0 @@
-import{st as e}from"./style-BGkoG8GH.js";import{it as t,ot as n,vn as r}from"./runtime-core.esm-bundler-B53NdkV7.js";function i(){let i=r(!1),a=e=>{i.value=e};return e(document,`keydown`,e=>{e.key===`Escape`&&i.value&&a(!1)}),n(()=>a(!1)),t(()=>a(!1)),{focusMode:i,setFocusMode:a}}export{i as t};

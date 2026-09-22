@@ -1,16 +1,11 @@
 <template>
   <ArtPermissionGuard permission="MesPacking:View" resource-name="排包单">
-    <div
-      class="packing-page business-workspace-page art-full-height"
-      :class="{ 'is-focus-mode': focusMode }"
-    >
+    <div class="packing-page business-workspace-page art-full-height">
       <BusinessWorkspaceHeader
-        v-show="!focusMode"
         eyebrow="PACKING WORKSPACE"
         title="排包单"
-        description="从生产工单板材明细生成推荐方案，再按实际出库单元调整包号和块数。"
+        description="生产工单 → 板材明细 → 排包单 · 单击联动查看，双击快速排包。"
         icon="ri:archive-line"
-        :metrics="selectedOrder && boards.length ? metrics : []"
         density="compact"
         refreshable
         :refresh-loading="loading"
@@ -36,466 +31,321 @@
         </template>
       </BusinessWorkspaceHeader>
 
-      <div class="packing-page__content business-workspace-content">
-        <ArtSectionCard
-          class="packing-page__orders"
-          title="待排生产工单"
-          :subtitle="`PP20 板材加工 · 当前 ${visibleOrders.length} 单`"
-          :loading="loading"
-          :error="error"
-          :empty="!loading && !error && !orders.length"
-          empty-title="暂无板材加工工单"
-          empty-description="请先在生产工单中创建 PP20 板材加工工单。"
-          @retry="loadOrders"
-        >
-          <div class="packing-page__filters">
-            <ElInput
-              v-model="keyword"
-              clearable
-              placeholder="工单、物料、规格、项目或施工号"
-              aria-label="组合查询工单"
-            >
-              <template #prefix><ArtSvgIcon icon="ri:search-line" /></template>
-            </ElInput>
-            <ElDatePicker
-              v-model="startDates"
-              type="daterange"
-              value-format="YYYY-MM-DD"
-              start-placeholder="开工起"
-              end-placeholder="开工止"
-              unlink-panels
-              clearable
-              aria-label="要求开工日期区间"
-            />
-            <ElCheckbox v-model="includePacked">包含已排包</ElCheckbox>
-          </div>
-          <ElScrollbar class="packing-page__order-scroll" always>
-            <div v-if="visibleOrders.length" class="packing-page__order-list">
-              <button
-                v-for="order in visibleOrders"
-                :key="order.id"
-                type="button"
-                class="packing-page__order"
-                :class="{ 'is-selected': order.id === orderId }"
-                :aria-pressed="order.id === orderId"
-                @click="chooseOrder(order.id)"
-              >
-                <span class="packing-page__order-top">
-                  <strong>{{ order.workOrderNo }}</strong>
-                  <span>{{ order.packedPieces }}/{{ order.boardPieces }} 块</span>
-                </span>
-                <span class="packing-page__order-name" :title="order.materialNameSnapshot">{{
-                  order.materialNameSnapshot
-                }}</span>
-                <span class="packing-page__order-bottom">
-                  <span>{{ order.projectNameSnapshot || '未关联项目' }}</span>
-                  <time>{{ order.plannedStartDate || '未设开工日' }}</time>
-                </span>
-              </button>
-            </div>
-            <ArtEmptyState
-              v-else-if="!loading && !error"
-              title="当前条件下没有工单"
-              description="可清除日期或勾选已排包后重试。"
-              size="compact"
-            />
-          </ElScrollbar>
-          <div class="packing-page__rule-field">
-            <span>自动排包规则</span>
-            <ElSelect
-              v-model="selectedRuleId"
-              :disabled="!selectedOrder"
-              placeholder="选择板材排包规则"
-              aria-label="板材排包规则"
-            >
-              <ElOption
-                v-for="rule in scopedRules"
-                :key="rule.id"
-                :label="rule.ruleName"
-                :value="rule.id"
-              />
-            </ElSelect>
-          </div>
-        </ArtSectionCard>
-        <div class="packing-page__main">
+      <ArtWorkspaceSplitter
+        class="packing-page__content"
+        primary-size="260px"
+        primary-min="220px"
+        primary-max="400px"
+        :breakpoint="1000"
+      >
+        <template #primary>
           <ArtSectionCard
-            v-if="selectedOrder && !detailLoading && (!boards.length || detailError)"
-            class="packing-page__single-state"
-            title="工单板材明细"
-            :error="detailError"
-            :empty="!detailError"
-            empty-title="该工单尚无板材明细"
-            empty-description="先在生产工单登记成品板的区域、编号、长宽和块数，再回来排包。"
-            @retry="loadDetails"
+            class="packing-page__orders"
+            title="待排生产工单"
+            :subtitle="`PP20 板材加工 · 当前 ${visibleOrders.length} 单`"
+            :loading="loading"
+            :error="error"
+            :empty="!loading && !error && !orders.length"
+            empty-title="暂无板材加工工单"
+            empty-description="请先在生产工单中创建 PP20 板材加工工单。"
+            @retry="loadOrders"
           >
-            <template #empty-action>
-              <ElButton v-auth="'MesWorkOrder:Edit'" type="primary" @click="openWorkOrder">
-                前往维护工单明细
-              </ElButton>
-            </template>
+            <div class="packing-page__filters">
+              <ElInput
+                v-model="keyword"
+                clearable
+                placeholder="工单、物料、规格、项目或施工号"
+                aria-label="组合查询工单"
+              >
+                <template #prefix><ArtSvgIcon icon="ri:search-line" /></template>
+              </ElInput>
+              <ElDatePicker
+                v-model="startDates"
+                type="daterange"
+                value-format="YYYY-MM-DD"
+                start-placeholder="开工起"
+                end-placeholder="开工止"
+                unlink-panels
+                clearable
+                aria-label="要求开工日期区间"
+              />
+              <ElCheckbox v-model="includePacked">包含已排包</ElCheckbox>
+            </div>
+            <ElScrollbar class="packing-page__order-scroll" always>
+              <div v-if="visibleOrders.length" class="packing-page__order-list">
+                <button
+                  v-for="order in visibleOrders"
+                  :key="order.id"
+                  type="button"
+                  class="packing-page__order"
+                  :class="{ 'is-selected': order.id === orderId }"
+                  :aria-pressed="order.id === orderId"
+                  @click="chooseOrder(order.id)"
+                >
+                  <span class="packing-page__order-top">
+                    <strong>{{ order.workOrderNo }}</strong>
+                    <ElTag size="small" :type="orderStatus(order).type" effect="light">{{
+                      orderStatus(order).label
+                    }}</ElTag>
+                  </span>
+                  <span class="packing-page__order-name" :title="order.materialNameSnapshot">{{
+                    order.materialNameSnapshot
+                  }}</span>
+                  <span class="packing-page__order-progress"
+                    >{{
+                      order.id === orderId && !detailLoading ? packedTotal : order.packedPieces
+                    }}/{{ order.boardPieces }} 块</span
+                  >
+                  <span class="packing-page__order-bottom">
+                    <span>{{ order.projectNameSnapshot || '未关联项目' }}</span>
+                    <time>{{ order.plannedStartDate || '未设开工日' }}</time>
+                  </span>
+                </button>
+              </div>
+              <ArtEmptyState
+                v-else-if="!loading && !error"
+                title="当前条件下没有工单"
+                description="可清除日期或勾选已排包后重试。"
+                size="compact"
+              />
+            </ElScrollbar>
+            <div class="packing-page__rule-field">
+              <span>自动排包规则</span>
+              <ElSelect
+                v-model="selectedRuleId"
+                :disabled="!selectedOrder"
+                placeholder="选择板材排包规则"
+                aria-label="板材排包规则"
+              >
+                <ElOption
+                  v-for="rule in scopedRules"
+                  :key="rule.id"
+                  :label="rule.ruleName"
+                  :value="rule.id"
+                />
+              </ElSelect>
+            </div>
           </ArtSectionCard>
-          <div v-else-if="selectedOrder" class="packing-page__workspace business-workspace-content">
-            <ArtSectionCard
-              class="packing-page__panel"
-              title="工单板材明细"
-              :subtitle="`剩余 ${remainingTotal} 块 · 双击明细可直接排包，也可勾选后批量排包`"
-              :loading="detailLoading"
-              :error="detailError"
-              :empty="!detailLoading && !detailError && !boards.length"
-              empty-title="工单尚无板材明细"
-              empty-description="先登记成品板的区域、轴线、尺寸和块数。"
-              @retry="loadDetails"
-            >
-              <ArtTableHeader
-                v-model:focus-mode="focusMode"
-                layout="refresh,size,fullscreen,settings"
-                full-class="packing-page__workspace"
-                :loading="detailLoading"
-                @refresh="refresh"
-              >
-                <template #left>
-                  <ElButton
-                    v-auth="'MesPacking:Manual'"
-                    :disabled="!selectedBoards.length"
-                    @click="createPack"
-                  >
-                    <ArtSvgIcon icon="ri:archive-stack-line" />批量排包
-                  </ElButton>
-                  <ElButton
-                    v-auth="'MesPacking:Manual'"
-                    :disabled="!selectedBoards.length || !selectedPack"
-                    @click="mergeSelected"
-                  >
-                    <ArtSvgIcon icon="ri:git-merge-line" />并入选中包
-                  </ElButton>
-                  <ElButton type="primary" plain @click="openResults">
-                    <ArtSvgIcon icon="ri:archive-line" />排包结果 · {{ packs.length }} 包
-                  </ElButton>
-                  <ElButton
-                    v-if="focusMode"
-                    v-auth="'MesPacking:Auto'"
-                    :disabled="!boards.length || busy"
-                    @click="autoPack"
-                  >
-                    <ArtSvgIcon icon="ri:magic-line" />自动排包
-                  </ElButton>
-                  <ElButton
-                    v-if="focusMode"
-                    v-auth="'MesPacking:Save'"
-                    type="primary"
-                    :loading="busy"
-                    :disabled="!dirty"
-                    @click="save"
-                  >
-                    <ArtSvgIcon icon="ri:save-line" />保存数据
-                  </ElButton>
-                  <ElButton v-auth="'MesWorkOrder:Edit'" @click="openWorkOrder">
-                    <ArtSvgIcon icon="ri:external-link-line" />查看生产单明细
-                  </ElButton>
-                </template>
-              </ArtTableHeader>
-              <ArtTable
-                ref="boardTableRef"
-                :data="boards"
-                :columns="[]"
-                :pagination="false"
-                :row-class-name="boardRowClass"
-                height="100%"
-                scrollbar-always-on
-                row-key="id"
-                @selection-change="selectedBoards = $event"
-                @row-dblclick="addBoard"
-              >
-                <ElTableColumn type="selection" width="40" />
-                <ElTableColumn label="区域" width="88" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    <span :title="`轴线：${row.axis || '待维护'}`">{{ row.area }}</span>
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="编号" width="84" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    <span
-                      :draggable="canManual"
-                      class="packing-page__drag"
-                      title="可通过排包按钮加入当前包"
-                      @dragstart="dragBoard($event, row.id)"
-                      >{{ row.boardNo }}</span
-                    >
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="长度 mm" width="90" align="right">
-                  <template #default="{ row }">{{ row.lengthMm }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="块数" width="64" align="right">
-                  <template #default="{ row }">{{ row.pieces }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="已排包块数" width="96" align="right">
-                  <template #default="{ row }">{{ packedForRow(row) }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="延米 m" width="82" align="right">
-                  <template #default="{ row }">{{
-                    ((row.lengthMm * row.pieces) / 1000).toFixed(2)
-                  }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="面积 ㎡" width="82" align="right">
-                  <template #default="{ row }">{{ areaForRow(row).toFixed(2) }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="备注" min-width="110" show-overflow-tooltip>
-                  <template #default="{ row }">{{ row.remark || '—' }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="操作" width="110" fixed="right">
-                  <template #default="{ row }">
-                    <ElButton
-                      v-auth="'MesPacking:Manual'"
-                      link
-                      type="primary"
-                      @click="addBoard(row)"
-                      >排包</ElButton
-                    >
-                    <ElButton v-auth="'MesPacking:Spec'" link @click="openSpec(row)">参数</ElButton>
-                  </template>
-                </ElTableColumn>
-              </ArtTable>
-            </ArtSectionCard>
-
-            <ArtDialog
-              ref="resultsDialogRef"
-              title="排包结果"
-              :subtitle="`${selectedOrder.workOrderNo} · 已排 ${packedTotal} 块 / 待排 ${remainingTotal} 块 · 共 ${packs.length} 包`"
-              size="xl"
-              align-center
-              content-max-height="65vh"
-              scrollbar-always
-            >
+        </template>
+        <ArtWorkspaceSplitter
+          primary-size="46%"
+          primary-min="300px"
+          primary-max="75%"
+          secondary-min="300px"
+          :breakpoint="1000"
+          stacked-primary-size="480px"
+        >
+          <template #primary>
+            <div class="packing-page__main">
               <ArtSectionCard
-                class="packing-results border-0! shadow-none! p-0!"
-                title="包清单"
-                :subtitle="`已选 ${selectedPacks.length} 包 · 勾选多个包可合包，勾选包内明细可拆包`"
-                :loading="detailLoading"
+                v-if="selectedOrder && !detailLoading && (!boards.length || detailError)"
+                class="packing-page__single-state"
+                title="工单板材明细"
                 :error="detailError"
-                :empty="!detailLoading && !detailError && !packs.length"
-                empty-title="尚未排包"
-                empty-description="可从左侧选中板材新建包，或生成自动推荐方案。"
+                :empty="!detailError"
+                empty-title="该工单尚无板材明细"
+                empty-description="先在生产工单登记成品板的区域、编号、长宽和块数，再回来排包。"
                 @retry="loadDetails"
               >
-                <template #actions>
-                  <ElButton
-                    v-auth="'MesPacking:Manual'"
-                    :disabled="selectedPacks.length < 2"
-                    @click="mergePacks"
-                    ><ArtSvgIcon icon="ri:git-merge-line" />合包</ElButton
-                  >
-                  <ElButton
-                    v-auth="'MesPacking:Manual'"
-                    :disabled="!selectedPack || !selectedPackItems.length"
-                    @click="splitPack"
-                    ><ArtSvgIcon icon="ri:git-branch-line" />拆包</ElButton
-                  >
-                </template>
                 <template #empty-action>
-                  <ElButton v-auth="'MesPacking:Auto'" type="primary" @click="autoPack">
-                    自动生成推荐方案
+                  <ElButton v-auth="'MesWorkOrder:Edit'" type="primary" @click="openWorkOrder">
+                    前往维护工单明细
                   </ElButton>
                 </template>
-                <div
-                  class="packing-page__pack-list"
-                  aria-label="排包列表"
-                  @dragover.prevent
-                  @drop="dropToUnpacked"
-                >
-                  <div class="packing-page__drop-hint"
-                    ><ArtSvgIcon icon="ri:drag-move-2-line" />
-                    将包内板材拖到此处退回待排区，也可点击行末“移出”</div
-                  >
-                  <div
-                    v-for="pack in packs"
-                    :key="pack.id || pack.packNo"
-                    class="packing-page__pack"
-                    :class="{ 'packing-page__pack--selected': selectedPack === pack }"
-                    @dragover.prevent
-                    @drop.stop="dropToPack($event, pack)"
-                  >
-                    <div class="packing-page__pack-head">
-                      <ElCheckbox
-                        v-auth="'MesPacking:Manual'"
-                        :model-value="selectedPacks.includes(pack)"
-                        :aria-label="`选择包 ${pack.packNo} 以合包`"
-                        @change="togglePackSelection(pack)"
-                      />
-                      <button
-                        type="button"
-                        class="packing-page__pack-select"
-                        :aria-label="`选择包 ${pack.packNo}`"
-                        @click="selectPack(pack)"
-                      >
-                        <ArtSvgIcon icon="ri:archive-line" />
-                        <strong>{{ pack.packNo }}</strong>
-                        <ElTag
-                          v-if="pack.manuallyAdjusted"
-                          type="warning"
-                          size="small"
-                          effect="plain"
-                          >人工调整</ElTag
-                        >
-                        <ElTag v-if="pack.confirmed" type="success" size="small" effect="plain"
-                          >已确认</ElTag
-                        >
-                      </button>
-                      <ElCheckbox
-                        v-model="pack.confirmed"
-                        v-auth="'MesPacking:Save'"
-                        label="确认"
-                        @change="confirmPack(pack)"
-                      />
-                    </div>
-                    <div class="packing-page__pack-meta">
-                      <span>{{ packArea(pack) }} / {{ packAxis(pack) }}</span>
-                      <span>{{ packTotals(pack, boards).pieces }} 块</span>
-                      <span
-                        >延米 {{ (packTotals(pack, boards).lengthMm / 1000).toFixed(2) }} m</span
-                      >
-                      <span>最宽 {{ packTotals(pack, boards).widthMm }} mm</span>
-                      <span>{{ packTotals(pack, boards).areaSqm.toFixed(2) }} ㎡</span>
-                      <span>{{ packTotals(pack, boards).weightKg.toFixed(1) }} kg</span>
-                      <span>堆叠 {{ packTotals(pack, boards).stackHeightMm }} mm</span>
-                    </div>
-                    <div class="packing-page__pack-fields">
-                      <ElInput
-                        v-model="pack.packNo"
-                        :disabled="!canManual"
-                        aria-label="包号"
-                        placeholder="包号"
-                        maxlength="60"
-                        @change="markManual(pack)"
-                      />
-                      <ElInput
-                        v-model="pack.remark"
-                        :disabled="!canManual"
-                        aria-label="包备注"
-                        placeholder="打包标识 / 备注"
-                        maxlength="200"
-                        @change="markManual(pack)"
-                      />
-                    </div>
-                    <ArtTable
-                      height="auto"
-                      :data="pack.items"
-                      :columns="[]"
-                      :pagination="false"
-                      table-layout="fixed"
-                      scrollbar-always-on
-                      @selection-change="selectPackItems(pack, $event)"
-                    >
-                      <ElTableColumn type="selection" width="36" />
-                      <ElTableColumn label="包号" width="150" show-overflow-tooltip>
-                        <template #default>{{ pack.packNo }}</template>
-                      </ElTableColumn>
-                      <ElTableColumn label="区域" width="100" show-overflow-tooltip>
-                        <template #default="{ row: item }">{{
-                          boardById(item.boardId)?.area || '—'
-                        }}</template>
-                      </ElTableColumn>
-                      <ElTableColumn label="编号" min-width="160">
-                        <template #default="{ row: item }">
-                          <span
-                            :draggable="canManual"
-                            class="packing-page__drag"
-                            title="拖出包"
-                            @dragstart="dragPackItem($event, pack, item.boardId)"
-                          >
-                            {{ boardById(item.boardId)?.boardNo || '板材已失效' }}
-                          </span>
-                        </template>
-                      </ElTableColumn>
-                      <ElTableColumn label="长度 mm" width="120" align="right">
-                        <template #default="{ row: item }">{{
-                          boardById(item.boardId)?.lengthMm
-                        }}</template>
-                      </ElTableColumn>
-                      <ElTableColumn label="块数" width="92">
-                        <template #default="{ row: item }">
-                          <ElInputNumber
-                            v-model="item.pieces"
-                            :disabled="!canManual"
-                            :min="1"
-                            :max="availableForItem(item.boardId, item.pieces)"
-                            :precision="0"
-                            :controls="false"
-                            class="w-full!"
-                            aria-label="本包块数"
-                            @change="markManual(pack)"
-                          />
-                        </template>
-                      </ElTableColumn>
-                      <ElTableColumn label="延米 m" width="110" align="right">
-                        <template #default="{ row: item }">{{
-                          itemMeters(item.boardId, item.pieces).toFixed(2)
-                        }}</template>
-                      </ElTableColumn>
-                      <ElTableColumn label="面积 ㎡" width="110" align="right">
-                        <template #default="{ row: item }">{{
-                          itemArea(item.boardId, item.pieces).toFixed(2)
-                        }}</template>
-                      </ElTableColumn>
-                      <ElTableColumn label="操作" width="80" fixed="right">
-                        <template #default="{ row: item }">
-                          <ElButton
-                            v-auth="'MesPacking:Manual'"
-                            link
-                            type="danger"
-                            :aria-label="`移出 ${boardById(item.boardId)?.boardNo}`"
-                            @click="removeItem(pack, item.boardId)"
-                            >移出</ElButton
-                          >
-                        </template>
-                      </ElTableColumn>
-                    </ArtTable>
-                  </div>
-                </div>
               </ArtSectionCard>
-              <template #footer="{ api }">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div aria-live="polite">
-                    <ElTag v-if="dirty" type="warning" effect="light">有未保存调整</ElTag>
-                  </div>
-                  <div class="flex items-center gap-2 [&_.el-button]:ml-0!">
-                    <ElButton @click="api.handleClose()">
-                      <ArtSvgIcon icon="ri:arrow-go-back-line" />返回继续排包
-                    </ElButton>
-                    <ElButton
-                      v-auth="'MesPacking:Save'"
-                      type="primary"
-                      :loading="busy"
-                      :disabled="!dirty"
-                      @click="save"
-                    >
-                      <ArtSvgIcon icon="ri:save-line" />保存排包结果
-                    </ElButton>
-                  </div>
-                </div>
-              </template>
-            </ArtDialog>
-          </div>
+              <div
+                v-else-if="selectedOrder"
+                class="packing-page__workspace business-workspace-content"
+              >
+                <ArtSectionCard
+                  class="packing-page__panel"
+                  title="工单板材明细"
+                  :subtitle="`剩余 ${remainingTotal} 块 · 单击联动，双击排包`"
+                  :loading="detailLoading"
+                  :error="detailError"
+                  :empty="!detailLoading && !detailError && !boards.length"
+                  empty-title="工单尚无板材明细"
+                  empty-description="先登记成品板的区域、轴线、尺寸和块数。"
+                  @retry="loadDetails"
+                >
+                  <ArtTableHeader
+                    layout="size,settings"
+                    full-class="packing-page__workspace"
+                    :loading="detailLoading"
+                    @refresh="refresh"
+                  >
+                    <template #left>
+                      <ElButton
+                        v-auth="'MesPacking:Manual'"
+                        size="small"
+                        :disabled="!selectedBoards.length"
+                        @click="createPack"
+                      >
+                        <ArtSvgIcon icon="ri:archive-stack-line" />批量排包
+                      </ElButton>
+                      <ElButton
+                        v-auth="'MesPacking:Manual'"
+                        size="small"
+                        :disabled="!selectedBoards.length || !selectedPack"
+                        @click="mergeSelected"
+                      >
+                        <ArtSvgIcon icon="ri:git-merge-line" />并入选中包
+                      </ElButton>
+                    </template>
+                  </ArtTableHeader>
+                  <ArtTable
+                    ref="boardTableRef"
+                    :fixed-column-min-width="0"
+                    :data="boards"
+                    :columns="boardColumns"
+                    :pagination="false"
+                    :row-class-name="boardRowClass"
+                    height="100%"
+                    scrollbar-always-on
+                    row-key="id"
+                    @selection-change="selectedBoards = $event"
+                    size="small"
+                    highlight-current-row
+                    @row-click="linkBoard"
+                    @row-dblclick="addBoard"
+                  >
+                    <template #operation="{ row }">
+                      <ElButton
+                        v-auth="'MesPacking:Manual'"
+                        link
+                        type="primary"
+                        @click.stop="addBoard(row)"
+                        >排包</ElButton
+                      >
+                      <ElButton v-auth="'MesPacking:Spec'" link @click.stop="openSpec(row)"
+                        >参数</ElButton
+                      >
+                    </template>
+                  </ArtTable>
+                </ArtSectionCard>
+              </div>
+              <ArtSectionCard
+                v-else
+                class="packing-page__start"
+                title="开始排包"
+                empty
+                empty-title="请选择生产工单"
+                empty-description="从左侧 PP20 工单列表选择一单，查看板材明细并进行排包。"
+              />
+            </div>
+          </template>
           <ArtSectionCard
-            v-else
-            class="packing-page__start"
-            title="开始排包"
-            empty
-            empty-title="请选择生产工单"
-            empty-description="从左侧 PP20 工单列表选择一单，查看板材明细并进行排包。"
-          />
-        </div>
-      </div>
+            class="packing-page__panel packing-page__results"
+            title="排包单"
+            :subtitle="
+              selectedOrder
+                ? `${packs.length} 包 · 已排 ${packedTotal} 块 · 待排 ${remainingTotal} 块`
+                : '选择生产工单后查看排包明细'
+            "
+            :loading="detailLoading"
+            :error="detailError"
+            @retry="loadDetails"
+          >
+            <div class="packing-page__toolbar">
+              <ElButton
+                v-auth="'MesPacking:Manual'"
+                size="small"
+                :disabled="selectedPacks.length < 2"
+                @click="mergePacks"
+                ><ArtSvgIcon icon="ri:git-merge-line" />合包</ElButton
+              >
+              <ElButton
+                v-auth="'MesPacking:Manual'"
+                size="small"
+                :disabled="selectedPacks.length !== 1 || !selectedPackItems.length"
+                @click="splitPack"
+                ><ArtSvgIcon icon="ri:git-branch-line" />拆包</ElButton
+              >
+              <ElButton v-if="activeBoardId" size="small" @click="clearBoardFilter"
+                ><ArtSvgIcon icon="ri:filter-off-line" />全部明细</ElButton
+              >
+              <ElTag v-if="dirty" size="small" type="warning" effect="light">未保存</ElTag>
+            </div>
+            <div class="packing-page__linkage">
+              <span>{{
+                activeBoard
+                  ? `${activeBoard.area} / ${activeBoard.boardNo} · ${activeBoard.lengthMm} mm`
+                  : '全部板材'
+              }}</span>
+              <span>已选 {{ selectedPacks.length }} 包 / {{ selectedResultRows.length }} 行</span>
+            </div>
+            <ArtTable
+              ref="resultTableRef"
+              :fixed-column-min-width="0"
+              empty-height="100%"
+              :empty-text="!selectedOrder ? '请先选择生产工单' : '暂无关联排包'"
+              empty-description="单击中间板材查看关联，双击或点击排包生成明细。"
+              :data="resultRows"
+              :columns="resultColumns"
+              :pagination="false"
+              height="100%"
+              size="small"
+              scrollbar-always-on
+              row-key="key"
+              @selection-change="selectResultRows"
+            >
+              <template #packNo="{ row }"
+                ><ElButton
+                  link
+                  type="primary"
+                  :aria-label="`选定 ${row.pack.packNo} 为并入目标`"
+                  @click="setTargetPack(row.pack)"
+                  >{{ row.pack.packNo }}</ElButton
+                ></template
+              >
+              <template #pieces="{ row }"
+                ><ElInputNumber
+                  v-model="row.item.pieces"
+                  size="small"
+                  :controls="false"
+                  :min="1"
+                  :max="availableForItem(row.item.boardId, row.item.pieces)"
+                  :precision="0"
+                  :disabled="!canManual"
+                  :aria-label="`${row.pack.packNo} 块数`"
+                  class="w-full!"
+                  @change="markManual(row.pack)"
+              /></template>
+              <template #operation="{ row }"
+                ><ElButton
+                  v-auth="'MesPacking:Manual'"
+                  link
+                  type="danger"
+                  @click="removeItem(row.pack, row.item.boardId)"
+                  >移出</ElButton
+                ></template
+              >
+            </ArtTable>
+            <div class="packing-page__result-note">
+              {{
+                selectedPack ? `并入目标：${selectedPack.packNo} · ` : '点击包号设置并入目标 · '
+              }}合包按整包，拆包按勾选明细
+              <ElButton
+                v-if="selectedPack"
+                link
+                type="primary"
+                size="small"
+                @click="selectedPack = null"
+                >取消目标</ElButton
+              >
+            </div>
+          </ArtSectionCard>
+        </ArtWorkspaceSplitter>
+      </ArtWorkspaceSplitter>
       <PackingBoardSpecDialog ref="specDialogRef" @success="loadDetails" />
     </div>
   </ArtPermissionGuard>
 </template>
 
 <script setup lang="ts">
+  import type { ColumnOption } from '@/types'
   import dayjs from 'dayjs'
-  import ArtDialog from '@/components/core/dialogs/art-dialog/index.vue'
-  import type { ArtDialogExpose } from '@/components/core/dialogs/art-dialog/types'
-  import { cloneDeep } from 'lodash-es'
+  import { cloneDeep, uniq } from 'lodash-es'
   import { storeToRefs } from 'pinia'
   import { useRouter } from 'vue-router'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
@@ -505,12 +355,10 @@
   import ArtTable from '@/components/core/tables/art-table/index.vue'
   import type { ArtTableExpose } from '@/components/core/tables/art-table/index.vue'
   import ArtTableHeader from '@/components/core/tables/art-table-header/index.vue'
-  import BusinessWorkspaceHeader, {
-    type BusinessWorkspaceMetric
-  } from '@/components/business/business-workspace-header/index.vue'
+  import BusinessWorkspaceHeader from '@/components/business/business-workspace-header/index.vue'
+  import ArtWorkspaceSplitter from '@/components/core/layouts/art-workspace-splitter/index.vue'
   import { useArtFeedback } from '@/hooks/core/useArtFeedback'
   import { useAuth } from '@/hooks/core/useAuth'
-  import { useWorkspaceFocus } from '@/hooks/core/useWorkspaceFocus'
   import { useTenantScopeStore } from '@/store/modules/tenantScope'
   import {
     fetchPackingOrders,
@@ -522,7 +370,7 @@
     type PackRule,
     type WorkOrderBoard
   } from '@mes/api'
-  import { packTotals, remainingPieces, suggestPacks, validatePlan } from './modules/packing-plan'
+  import { remainingPieces, suggestPacks, validatePlan } from './modules/packing-plan'
   import PackingBoardSpecDialog from './modules/packing-board-spec-dialog.vue'
 
   defineOptions({ name: 'MesPacking' })
@@ -539,7 +387,6 @@
   const router = useRouter()
   const { effectiveTenantId } = storeToRefs(tenantScope)
   const { confirm, promptText } = useArtFeedback()
-  const { focusMode } = useWorkspaceFocus()
   const { hasAuth } = useAuth()
   const canManual = computed(() => hasAuth('MesPacking:Manual'))
   const orders = ref<Order[]>([])
@@ -559,10 +406,125 @@
   const selectedPacks = ref<PackDraft[]>([])
   const selectedPackItems = ref<PackDraft['items']>([])
   const boardTableRef = ref<ArtTableExpose>()
-  const resultsDialogRef = ref<ArtDialogExpose>()
-  async function openResults(): Promise<void> {
-    await nextTick()
-    await resultsDialogRef.value?.handleOpen()
+  interface PackingResultRow {
+    key: string
+    pack: PackDraft
+    item: PackDraft['items'][number]
+    board: WorkOrderBoard | undefined
+  }
+  const boardColumns: ColumnOption<WorkOrderBoard>[] = [
+    { type: 'selection', width: 36 },
+    { prop: 'area', label: '区域', width: 62, showOverflowTooltip: true },
+    { prop: 'boardNo', label: '编号', width: 76, showOverflowTooltip: true },
+    { prop: 'lengthMm', label: '长度 mm', width: 88, align: 'right' },
+    { prop: 'pieces', label: '块数', width: 56, align: 'right' },
+    { prop: 'packed', label: '已排', width: 56, align: 'right', formatter: (row) => packed(row) },
+    {
+      prop: 'meters',
+      label: '延米 m',
+      width: 80,
+      align: 'right',
+      formatter: (row) => ((row.lengthMm * row.pieces) / 1000).toFixed(2)
+    },
+    {
+      prop: 'areaSqm',
+      label: '面积 ㎡',
+      width: 80,
+      align: 'right',
+      formatter: (row) => row.areaSqm.toFixed(2)
+    },
+    { prop: 'remark', label: '备注', minWidth: 100, showOverflowTooltip: true },
+    { prop: 'operation', label: '操作', width: 104, fixed: 'right', useSlot: true }
+  ]
+  const resultColumns: ColumnOption<PackingResultRow>[] = [
+    { type: 'selection', width: 36 },
+    { prop: 'packNo', label: '包号', width: 100, useSlot: true },
+    {
+      prop: 'area',
+      label: '区域',
+      width: 62,
+      formatter: (row) => row.board?.area || '—',
+      showOverflowTooltip: true
+    },
+    {
+      prop: 'boardNo',
+      label: '编号',
+      width: 76,
+      formatter: (row) => row.board?.boardNo || '—',
+      showOverflowTooltip: true
+    },
+    {
+      prop: 'lengthMm',
+      label: '长度 mm',
+      width: 88,
+      align: 'right',
+      formatter: (row) => row.board?.lengthMm || '—'
+    },
+    { prop: 'pieces', label: '块数', width: 86, useSlot: true },
+    {
+      prop: 'meters',
+      label: '延米 m',
+      width: 80,
+      align: 'right',
+      formatter: (row) => itemMeters(row.item.boardId, row.item.pieces).toFixed(2)
+    },
+    {
+      prop: 'areaSqm',
+      label: '面积 ㎡',
+      width: 80,
+      align: 'right',
+      formatter: (row) => itemArea(row.item.boardId, row.item.pieces).toFixed(2)
+    },
+    { prop: 'operation', label: '操作', width: 60, fixed: 'right', useSlot: true }
+  ]
+  const activeBoardId = ref('')
+  const activeBoard = computed(() => boardById(activeBoardId.value))
+  const resultTableRef = ref<ArtTableExpose>()
+  const selectedResultRows = ref<PackingResultRow[]>([])
+  const resultRows = computed<PackingResultRow[]>(() =>
+    packs.value.flatMap((pack) =>
+      pack.items
+        .filter((item) => !activeBoardId.value || item.boardId === activeBoardId.value)
+        .map((item) => ({
+          key: `${pack.id || pack.packNo}:${item.boardId}`,
+          pack,
+          item,
+          board: boardById(item.boardId)
+        }))
+    )
+  )
+  function clearResultSelection(): void {
+    resultTableRef.value?.elTableRef?.clearSelection()
+    selectedResultRows.value = []
+    selectedPacks.value = []
+    selectedPackItems.value = []
+  }
+  function setTargetPack(pack: PackDraft): void {
+    clearResultSelection()
+    selectedPack.value = pack
+  }
+  function selectResultRows(rows: PackingResultRow[]): void {
+    selectedResultRows.value = rows
+    selectedPacks.value = uniq(rows.map((row) => row.pack))
+    selectedPackItems.value = selectedPacks.value.length === 1 ? rows.map((row) => row.item) : []
+    if (selectedPacks.value.length === 1) selectedPack.value = selectedPacks.value[0]
+  }
+  function linkBoard(row: { id?: unknown }, column?: { type?: string }): void {
+    if (column?.type === 'selection' || typeof row.id !== 'string') return
+    activeBoardId.value = row.id
+    clearResultSelection()
+  }
+  function clearBoardFilter(): void {
+    activeBoardId.value = ''
+    clearResultSelection()
+    boardTableRef.value?.elTableRef?.setCurrentRow()
+  }
+  function orderStatus(order: Order): { label: string; type: 'success' | 'warning' | 'info' } {
+    const count =
+      order.id === orderId.value && !detailLoading.value ? packedTotal.value : order.packedPieces
+    if (order.boardPieces > 0 && count >= order.boardPieces)
+      return { label: '已排包', type: 'success' }
+    return count > 0 ? { label: '部分排包', type: 'warning' } : { label: '未排包', type: 'info' }
   }
   const specDialogRef = ref<{ handleOpen: (row: WorkOrderBoard) => Promise<void> }>()
   const loading = ref(false)
@@ -572,6 +534,7 @@
   const detailError = ref('')
   const dirty = ref(false)
   const revision = ref('')
+  let detailRequest = 0
   const selectedOrder = computed(() => orders.value.find((order) => order.id === orderId.value))
   const visibleOrders = computed(() => {
     const needle = keyword.value.trim().toLocaleLowerCase()
@@ -605,40 +568,10 @@
   })
   const remaining = (board: WorkOrderBoard): number => remainingPieces(board, packs.value)
   const packed = (board: WorkOrderBoard): number => board.pieces - remaining(board)
-  const packedForRow = (row: Record<string, unknown>): number => {
-    const board = typeof row.id === 'string' ? boardById(row.id) : undefined
-    return board ? packed(board) : 0
-  }
-  const areaForRow = (row: Record<string, unknown>): number => {
-    const board = typeof row.id === 'string' ? boardById(row.id) : undefined
-    return board?.areaSqm ?? 0
-  }
   const packedTotal = computed(() => boards.value.reduce((sum, board) => sum + packed(board), 0))
   const remainingTotal = computed(() =>
     boards.value.reduce((sum, board) => sum + remaining(board), 0)
   )
-  const metrics = computed<BusinessWorkspaceMetric[]>(() => [
-    {
-      label: '工单板材',
-      value: boards.value.reduce((sum, board) => sum + board.pieces, 0),
-      description: '块',
-      icon: 'ri:layout-grid-line'
-    },
-    {
-      label: '已排包',
-      value: packedTotal.value,
-      description: `${packs.value.length} 包`,
-      icon: 'ri:archive-line',
-      tone: 'primary'
-    },
-    {
-      label: '待打包',
-      value: remainingTotal.value,
-      description: '块',
-      icon: 'ri:inbox-line',
-      tone: remainingTotal.value ? 'warning' : 'success'
-    }
-  ])
   const boardById = (id: string): WorkOrderBoard | undefined =>
     boards.value.find((board) => board.id === id)
   const availableForItem = (id: string, current: number): number => {
@@ -651,8 +584,6 @@
     const board = boardById(id)
     return board ? (board.areaSqm / board.pieces) * pieces : 0
   }
-  const packArea = (pack: PackDraft): string => boardById(pack.items[0]?.boardId)?.area || '—'
-  const packAxis = (pack: PackDraft): string => boardById(pack.items[0]?.boardId)?.axis || '—'
   const boardRowClass = ({ row }: { row: WorkOrderBoard }): string =>
     remaining(row) === 0 ? 'packing-page__complete' : ''
 
@@ -678,13 +609,19 @@
   }
   async function loadDetails(): Promise<void> {
     if (!orderId.value) return
+    clearBoardFilter()
+    selectedPack.value = null
+    selectedBoards.value = []
     detailLoading.value = true
     detailError.value = ''
+    const request = ++detailRequest
+    const currentOrderId = orderId.value
     try {
       const [boardRows, packRows] = await Promise.all([
-        fetchWorkOrderBoards(orderId.value),
-        fetchWorkOrderPacks(orderId.value)
+        fetchWorkOrderBoards(currentOrderId),
+        fetchWorkOrderPacks(currentOrderId)
       ])
+      if (request !== detailRequest || currentOrderId !== orderId.value) return
       boards.value = boardRows
       packs.value = packRows.map((pack) => ({
         id: pack.id,
@@ -704,9 +641,10 @@
       dirty.value = false
       revision.value = selectedOrder.value?.updateTime || ''
     } catch {
-      detailError.value = '板材和排包明细加载失败，请重试。'
+      if (request === detailRequest && currentOrderId === orderId.value)
+        detailError.value = '板材和排包明细加载失败，请重试。'
     } finally {
-      detailLoading.value = false
+      if (request === detailRequest) detailLoading.value = false
     }
   }
   async function selectOrder(): Promise<void> {
@@ -755,29 +693,12 @@
     pack.confirmed = false
     dirty.value = true
   }
-  function confirmPack(pack: PackDraft): void {
-    pack.manuallyAdjusted = true
-    dirty.value = true
-  }
   function nextPackNo(): string {
     let serial = 1
     let candidate = ''
     do candidate = `PK-${String(serial++).padStart(4, '0')}`
     while (packs.value.some((pack) => pack.packNo === candidate))
     return candidate
-  }
-  function selectPack(pack: PackDraft): void {
-    selectedPack.value = pack
-    selectedPackItems.value = []
-  }
-  function selectPackItems(pack: PackDraft, items: PackDraft['items']): void {
-    if (items.length) selectedPack.value = pack
-    if (selectedPack.value === pack) selectedPackItems.value = items
-  }
-  function togglePackSelection(pack: PackDraft): void {
-    selectedPacks.value = selectedPacks.value.includes(pack)
-      ? selectedPacks.value.filter((item) => item !== pack)
-      : [...selectedPacks.value, pack]
   }
   function addPieces(board: WorkOrderBoard, pack: PackDraft, amount = remaining(board)): void {
     if (!canManual.value) return
@@ -809,6 +730,7 @@
       ElMessage.warning('请选择相同区域和轴线的板材新建包')
       return
     }
+    clearBoardFilter()
     const pack: PackDraft = {
       packNo: nextPackNo(),
       manuallyAdjusted: true,
@@ -837,7 +759,7 @@
     }
     if (remaining(board) <= 0) {
       ElMessage.info('该明细已全部排包，可在排包结果中调整')
-      void openResults()
+      linkBoard(board)
       return
     }
     const before = remaining(board)
@@ -848,11 +770,12 @@
     }
     if (remaining(board) < before) {
       ElMessage.success(`已排入 ${selectedPack.value?.packNo}，尚未保存`)
-      void openResults()
+      linkBoard(board)
     }
   }
   function removeItem(pack: PackDraft, boardId: string): void {
     if (!canManual.value) return
+    clearResultSelection()
     pack.items = pack.items.filter((item) => item.boardId !== boardId)
     if (!pack.items.length) {
       packs.value = packs.value.filter((item) => item !== pack)
@@ -884,6 +807,7 @@
     selectedPacks.value = []
     selectedPackItems.value = []
     selectedPack.value = target
+    clearResultSelection()
     markManual(target)
   }
   async function splitPack(): Promise<void> {
@@ -929,55 +853,8 @@
     packs.value.push(created)
     selectedPackItems.value = []
     selectedPack.value = created
+    clearResultSelection()
     markManual(source)
-  }
-  function dragBoard(event: DragEvent, boardId: string): void {
-    event.dataTransfer?.setData('text/plain', JSON.stringify({ boardId }))
-  }
-  function dragPackItem(event: DragEvent, pack: PackDraft, boardId: string): void {
-    event.dataTransfer?.setData('text/plain', JSON.stringify({ boardId, from: pack.packNo }))
-    event.stopPropagation()
-  }
-  function dragged(event: DragEvent): { boardId: string; from?: string } | null {
-    try {
-      const parsed: unknown = JSON.parse(event.dataTransfer?.getData('text/plain') || 'null')
-      if (
-        parsed &&
-        typeof parsed === 'object' &&
-        'boardId' in parsed &&
-        typeof parsed.boardId === 'string'
-      )
-        return {
-          boardId: parsed.boardId,
-          from: 'from' in parsed && typeof parsed.from === 'string' ? parsed.from : undefined
-        }
-    } catch {
-      /* Ignore unrelated drag payloads. */
-    }
-    return null
-  }
-  function dropToPack(event: DragEvent, target: PackDraft): void {
-    if (!canManual.value) return
-    const payload = dragged(event)
-    if (!payload || payload.from === target.packNo) return
-    const board = boardById(payload.boardId)
-    if (!board) return
-    const first = boardById(target.items[0]?.boardId)
-    if (first && (first.area !== board.area || first.axis !== board.axis)) {
-      ElMessage.warning('不同区域或轴线的板材不能排在同一包')
-      return
-    }
-    const source = packs.value.find((pack) => pack.packNo === payload.from)
-    const count =
-      source?.items.find((item) => item.boardId === board.id)?.pieces || remaining(board)
-    if (source) removeItem(source, board.id)
-    addPieces(board, target, count)
-  }
-  function dropToUnpacked(event: DragEvent): void {
-    if (!canManual.value) return
-    const payload = dragged(event)
-    const source = packs.value.find((pack) => pack.packNo === payload?.from)
-    if (source && payload) removeItem(source, payload.boardId)
   }
   async function autoPack(): Promise<void> {
     if (!hasAuth('MesPacking:Auto')) return
@@ -1004,6 +881,7 @@
       }
     }
     const proposed = suggestPacks(boards.value, cloneDeep(packs.value), rule, preserveManual)
+    clearBoardFilter()
     packs.value = proposed
     selectedPack.value = null
     dirty.value = true
@@ -1033,6 +911,8 @@
   watch(
     effectiveTenantId,
     () => {
+      clearBoardFilter()
+      selectedPack.value = null
       orderId.value = ''
       boards.value = []
       packs.value = []
@@ -1051,26 +931,8 @@
     min-height: 0;
   }
 
-  .packing-page.is-focus-mode {
-    gap: var(--art-space-2);
-  }
-
-  .packing-page__toolbar,
-  .packing-page__pack-head,
-  .packing-page__pack-meta,
-  .packing-page__pack-fields {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--art-space-2);
-    align-items: center;
-  }
-
   .packing-page__content {
-    display: grid;
     flex: 1;
-    grid-template-columns: minmax(276px, 316px) minmax(0, 1fr);
-    gap: var(--art-space-3);
-    min-width: 0;
     min-height: 0;
   }
 
@@ -1191,13 +1053,20 @@
     white-space: nowrap;
   }
 
-  .packing-page__single-state {
-    flex: none;
-  }
+  .packing-page__single-state,
+  .packing-page__start {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
 
-  .packing-page__toolbar small,
-  .packing-page__pack-meta {
-    color: var(--el-text-color-secondary);
+    :deep(.art-section-card__body) {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+    }
   }
 
   .packing-page__workspace {
@@ -1206,10 +1075,6 @@
     flex-direction: column;
     gap: var(--art-space-3);
     min-width: 0;
-    min-height: 0;
-  }
-
-  .packing-page.is-focus-mode .packing-page__content {
     min-height: 0;
   }
 
@@ -1230,126 +1095,64 @@
   }
 
   .packing-page__toolbar {
-    flex: none;
-  }
-
-  .packing-page__pack-list {
-    display: grid;
-    gap: var(--art-space-3);
-    align-content: start;
-    padding-right: 8px;
-  }
-
-  .packing-page__drop-hint {
-    padding: 8px 12px;
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-    background: var(--art-gray-100);
-    border-radius: var(--custom-radius);
-  }
-
-  .packing-page__pack {
-    display: grid;
-    gap: var(--art-space-2);
-    min-width: 0;
-    padding: var(--art-space-3);
-    border: 1px solid var(--el-border-color-light);
-    border-radius: var(--custom-radius);
-  }
-
-  .packing-page__pack--selected {
-    border-color: var(--el-border-color-light);
-  }
-
-  .packing-page__pack--selected .packing-page__pack-select {
-    color: var(--theme-color);
-    background: var(--el-color-primary-light-9);
-  }
-
-  .packing-page__pack-head {
-    justify-content: flex-start;
-  }
-
-  .packing-page__pack-head > :last-child {
-    margin-left: auto;
-  }
-
-  .packing-page__pack-select {
     display: flex;
-    gap: 8px;
+    flex: none;
+    flex-wrap: wrap;
+    gap: var(--art-space-2);
     align-items: center;
-    padding: 6px;
-    color: var(--el-text-color-primary);
-    cursor: pointer;
-    background: transparent;
-    border: 0;
+
+    :deep(.el-button + .el-button) {
+      margin-left: 0;
+    }
+  }
+
+  .packing-page__panel :deep(.art-table) {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .packing-page__panel :deep(.el-table) {
+    margin-top: 0;
+  }
+
+  .packing-page__linkage {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    justify-content: space-between;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--el-text-color-regular);
+    background: var(--el-fill-color-light);
     border-radius: var(--art-control-radius);
   }
 
-  .packing-page__pack-select:focus-visible {
-    outline: 2px solid var(--theme-color);
-    outline-offset: 2px;
-  }
-
-  .packing-page__pack-meta {
-    gap: 4px 12px;
+  .packing-page__result-note,
+  .packing-page__order-progress {
     font-size: 12px;
+    color: var(--el-text-color-secondary);
   }
 
-  .packing-page__pack-fields {
-    display: grid;
-    grid-template-columns: 180px minmax(0, 1fr);
-  }
-
-  .packing-page__pack-fields > :first-child {
-    width: 100%;
-  }
-
-  .packing-results {
-    width: 100%;
-    margin-inline: auto;
-
-    .packing-page__pack {
-      background: var(--default-box-color);
-    }
-
-    .packing-page__drop-hint {
-      display: flex;
-      gap: var(--art-space-2);
-      align-items: center;
-    }
-  }
-
-  .packing-page__drag {
-    cursor: grab;
+  .packing-page__result-note {
+    flex: none;
+    padding-top: 8px;
+    border-top: 1px solid var(--el-border-color-lighter);
   }
 
   .packing-page__panel :deep(.packing-page__complete) {
     background: var(--el-color-warning-light-9);
   }
 
-  @media (width <= 1100px) {
+  @media (width <= 1000px) {
     .packing-page {
       height: auto;
       min-height: 100%;
     }
 
-    .packing-page__content {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .packing-page__orders {
-      min-height: 320px;
-    }
-
-    .packing-page__panel {
-      min-height: 360px;
-    }
-  }
-
-  @media (width <= 680px) {
-    .packing-page__pack-fields {
-      grid-template-columns: minmax(0, 1fr);
+    .packing-page__results {
+      flex: none;
+      height: 480px;
     }
   }
 </style>
